@@ -1,0 +1,276 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&family=Inter:wght@300;400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+    margin: 0;
+    font-family: 'Inter', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    font-family: 'Outfit', sans-serif;
+}
+
+code {
+    font-family: source-code-pro, Menlo, Monaco, Consolas, "Courier New", monospace;
+}
+
+/* Theme CSS Variables */
+@layer base {
+    :root {
+        --background: 222 47% 3%;
+        --foreground: 210 40% 98%;
+        --card: 217 33% 8%;
+        --card-foreground: 210 40% 98%;
+        --popover: 217 33% 8%;
+        --popover-foreground: 210 40% 98%;
+        --primary: 199 89% 58%;
+        --primary-foreground: 222 47% 3%;
+        --secondary: 217 33% 14%;
+        --secondary-foreground: 210 40% 98%;
+        --muted: 217 33% 14%;
+        --muted-foreground: 215 20% 65%;
+        --accent: 217 33% 14%;
+        --accent-foreground: 210 40% 98%;
+        --destructive: 0 84.2% 60.2%;
+        --destructive-foreground: 210 40% 98%;
+        --border: 217 33% 17%;
+        --input: 217 33% 17%;
+        --ring: 199 89% 58%;
+        --chart-1: 199 89% 58%;
+        --chart-2: 160 60% 45%;
+        --chart-3: 30 80% 55%;
+        --chart-4: 280 65% 60%;
+        --chart-5: 340 75% 55%;
+        --radius: 0.5rem;
+        --success: 142 71% 45%;
+        --warning: 38 92% 50%;
+    }
+
+    /* Sapphire Night - Blue Dark */
+    .theme-blue-dark {
+        --background: 222 47% 3%;
+        --foreground: 210 40% 98%;
+        --card: 217 33% 8%;
+        --card-foreground: 210 40% 98%;
+        --popover: 217 33% 8%;
+        --popover-foreground: 210 40% 98%;
+        --primary: 199 89% 58%;
+        --primary-foreground: 222 47% 3%;
+        --secondary: 217 33% 14%;
+        --secondary-foreground: 210 40% 98%;
+        --muted: 217 33% 14%;
+        --muted-foreground: 215 20% 65%;
+        --accent: 217 33% 14%;
+        --accent-foreground: 210 40% 98%;
+        --border: 217 33% 17%;
+        --input: 217 33% 17%;
+        --ring: 199 89% 58%;
+    }
+
+    /* Amethyst Void - Purple Dark */
+    .theme-purple-dark {
+        --background: 263 56% 7%;
+        --foreground: 270 40% 98%;
+        --card: 260 43% 15%;
+        --card-foreground: 270 40% 98%;
+        --popover: 260 43% 15%;
+        --popover-foreground: 270 40% 98%;
+        --primary: 270 91% 72%;
+        --primary-foreground: 263 56% 7%;
+        --secondary: 260 43% 20%;
+        --secondary-foreground: 270 40% 98%;
+        --muted: 260 43% 20%;
+        --muted-foreground: 260 20% 65%;
+        --accent: 260 43% 20%;
+        --accent-foreground: 270 40% 98%;
+        --border: 260 43% 22%;
+        --input: 260 43% 22%;
+        --ring: 270 91% 72%;
+    }
+
+    /* Emerald Deep - Green Dark */
+    .theme-green-dark {
+        --background: 166 88% 5%;
+        --foreground: 160 40% 98%;
+        --card: 163 64% 12%;
+        --card-foreground: 160 40% 98%;
+        --popover: 163 64% 12%;
+        --popover-foreground: 160 40% 98%;
+        --primary: 160 84% 51%;
+        --primary-foreground: 166 88% 5%;
+        --secondary: 163 64% 17%;
+        --secondary-foreground: 160 40% 98%;
+        --muted: 163 64% 17%;
+        --muted-foreground: 160 20% 65%;
+        --accent: 163 64% 17%;
+        --accent-foreground: 160 40% 98%;
+        --border: 163 64% 20%;
+        --input: 163 64% 20%;
+        --ring: 160 84% 51%;
+    }
+
+    /* Cerulean Mist - Blue Light */
+    .theme-blue-light {
+        --background: 200 100% 97%;
+        --foreground: 200 80% 10%;
+        --card: 0 0% 100%;
+        --card-foreground: 200 80% 10%;
+        --popover: 0 0% 100%;
+        --popover-foreground: 200 80% 10%;
+        --primary: 199 89% 39%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 200 30% 94%;
+        --secondary-foreground: 200 80% 10%;
+        --muted: 200 30% 94%;
+        --muted-foreground: 200 20% 40%;
+        --accent: 200 30% 94%;
+        --accent-foreground: 200 80% 10%;
+        --border: 200 30% 88%;
+        --input: 200 30% 88%;
+        --ring: 199 89% 39%;
+    }
+
+    /* Lavender Haze - Purple Light */
+    .theme-purple-light {
+        --background: 270 100% 98%;
+        --foreground: 270 80% 10%;
+        --card: 0 0% 100%;
+        --card-foreground: 270 80% 10%;
+        --popover: 0 0% 100%;
+        --popover-foreground: 270 80% 10%;
+        --primary: 271 76% 53%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 270 30% 94%;
+        --secondary-foreground: 270 80% 10%;
+        --muted: 270 30% 94%;
+        --muted-foreground: 270 20% 40%;
+        --accent: 270 30% 94%;
+        --accent-foreground: 270 80% 10%;
+        --border: 270 30% 88%;
+        --input: 270 30% 88%;
+        --ring: 271 76% 53%;
+    }
+
+    /* Sage Morning - Green Light */
+    .theme-green-light {
+        --background: 138 76% 97%;
+        --foreground: 140 80% 10%;
+        --card: 0 0% 100%;
+        --card-foreground: 140 80% 10%;
+        --popover: 0 0% 100%;
+        --popover-foreground: 140 80% 10%;
+        --primary: 142 71% 35%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 140 30% 94%;
+        --secondary-foreground: 140 80% 10%;
+        --muted: 140 30% 94%;
+        --muted-foreground: 140 20% 40%;
+        --accent: 140 30% 94%;
+        --accent-foreground: 140 80% 10%;
+        --border: 140 30% 88%;
+        --input: 140 30% 88%;
+        --ring: 142 71% 35%;
+    }
+}
+
+@layer base {
+    * {
+        @apply border-border;
+    }
+    body {
+        @apply bg-background text-foreground;
+    }
+}
+
+/* Gradient backgrounds for themes */
+.theme-blue-dark .gradient-bg {
+    background: radial-gradient(circle at 0% 0%, rgba(56, 189, 248, 0.12) 0%, rgba(2, 6, 23, 0) 50%), #020617;
+}
+
+.theme-purple-dark .gradient-bg {
+    background: radial-gradient(circle at 50% 0%, rgba(192, 132, 252, 0.1) 0%, rgba(11, 5, 29, 0) 60%), #0b051d;
+}
+
+.theme-green-dark .gradient-bg {
+    background: radial-gradient(circle at 100% 0%, rgba(52, 211, 153, 0.1) 0%, rgba(2, 44, 34, 0) 50%), #022c22;
+}
+
+.theme-blue-light .gradient-bg {
+    background: linear-gradient(120deg, #e0f2fe 0%, #f0f9ff 100%);
+}
+
+.theme-purple-light .gradient-bg {
+    background: linear-gradient(120deg, #f3e8ff 0%, #faf5ff 100%);
+}
+
+.theme-green-light .gradient-bg {
+    background: linear-gradient(120deg, #dcfce7 0%, #f0fdf4 100%);
+}
+
+/* Glass morphism */
+.glass {
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.glass-light {
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+/* Tabular numbers for financial data */
+.tabular-nums {
+    font-variant-numeric: tabular-nums;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+}
+
+/* Animation utilities */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+    animation: fadeIn 0.3s ease-out forwards;
+}
+
+@keyframes slideIn {
+    from { opacity: 0; transform: translateX(20px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+.animate-slide-in {
+    animation: slideIn 0.3s ease-out forwards;
+}
+
+/* Debug wrapper fix */
+@layer base {
+    [data-debug-wrapper="true"] {
+        display: contents !important;
+    }
+}
