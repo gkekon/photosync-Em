@@ -13,8 +13,7 @@ import { Separator } from "../components/ui/separator";
 import { Badge } from "../components/ui/badge";
 import { toast } from "sonner";
 import { Calendar, Check, Link2, Loader2 } from "lucide-react";
-
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+import { apiFetch } from "../utils/api";
 
 export const CalendarDialog = ({ open, onOpenChange, calendarStatus, onRefresh }) => {
   const [calendars, setCalendars] = useState([]);
@@ -34,9 +33,7 @@ export const CalendarDialog = ({ open, onOpenChange, calendarStatus, onRefresh }
   const fetchCalendars = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${BACKEND_URL}/api/calendar/list`, {
-        credentials: "include",
-      });
+      const response = await apiFetch("/api/calendar/list");
       if (response.ok) {
         const data = await response.json();
         setCalendars(data);
@@ -51,9 +48,7 @@ export const CalendarDialog = ({ open, onOpenChange, calendarStatus, onRefresh }
   const handleConnect = async () => {
     setConnecting(true);
     try {
-      const response = await fetch(`${BACKEND_URL}/api/oauth/calendar/login`, {
-        credentials: "include",
-      });
+      const response = await apiFetch("/api/oauth/calendar/login");
       if (response.ok) {
         const data = await response.json();
         // Always use top-level navigation for OAuth (avoids iframe blocking)
@@ -96,10 +91,9 @@ export const CalendarDialog = ({ open, onOpenChange, calendarStatus, onRefresh }
   const handleSelectCalendar = async (calendarId) => {
     setSelectedCalendar(calendarId);
     try {
-      const response = await fetch(`${BACKEND_URL}/api/calendar/select`, {
+      const response = await apiFetch("/api/calendar/select", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({ calendar_id: calendarId }),
       });
       if (response.ok) {

@@ -18,8 +18,7 @@ import {
   Legend,
 } from "recharts";
 import { TrendingUp, PieChart as PieChartIcon, BarChart3, Calendar } from "lucide-react";
-
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+import { apiFetch } from "../utils/api";
 
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -43,9 +42,7 @@ export const AnalyticsPanel = ({ isOpen }) => {
   const fetchAnalytics = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${BACKEND_URL}/api/analytics/overview`, {
-        credentials: "include",
-      });
+      const response = await apiFetch("/api/analytics/overview");
       if (response.ok) {
         const data = await response.json();
         setAnalytics(data);

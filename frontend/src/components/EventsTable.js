@@ -3,8 +3,7 @@ import { Badge } from "../components/ui/badge";
 import { Checkbox } from "../components/ui/checkbox";
 import { Check, X, MapPin, Video } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
-
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+import { apiFetch } from "../utils/api";
 
 export const EventsTable = ({ events, packages, onEdit, formatCurrency, onRefresh }) => {
   const { currentTheme } = useTheme();
@@ -29,10 +28,9 @@ export const EventsTable = ({ events, packages, onEdit, formatCurrency, onRefres
   // Quick toggle for video checkbox
   const handleVideoToggle = async (event, checked) => {
     try {
-      await fetch(`${BACKEND_URL}/api/events/${event.event_id}`, {
+      await apiFetch(`/api/events/${event.event_id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({ has_video: checked }),
       });
       if (onRefresh) onRefresh();

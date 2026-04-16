@@ -1,12 +1,23 @@
 import { createContext, useContext, useState, useCallback, useEffect } from "react";
-
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+import { apiFetch, BACKEND_URL } from "../utils/api";
 
 const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(() => {
-    // Try to restore user from localStorage on initial load
+    // Handle session_token from URL SYNCHRONOUSLY (before any effects)
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("session_token");
+    if (token) {
+      localStorage.setItem("photosync_session_token", token);
+      // Clean the URL
+      params.delete("session_token");
+      const newSearch = params.toString();
+      const newUrl = window.location.pathname + (newSearch ? `?${newSearch}` : "");
+      window.history.replaceState({}, "", newUrl);
+    }
+
+    // Try to restore user from localStorage
     const stored = localStorage.getItem("photosync_user");
     if (stored) {
       try {
@@ -29,9 +40,7 @@ export const AuthProvider = ({ children }) => {
   const checkAuth = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${BACKEND_URL}/api/auth/me`, {
-        credentials: "include",
-      });
+      const response = await apiFetch("/api/auth/me");
       if (response.ok) {
         const userData = await response.json();
         setUser(userData);
@@ -39,11 +48,13 @@ export const AuthProvider = ({ children }) => {
       }
       setUser(null);
       localStorage.removeItem("photosync_user");
+      localStorage.removeItem("photosync_session_token");
       return false;
     } catch (error) {
       console.error("Auth check error:", error);
       setUser(null);
       localStorage.removeItem("photosync_user");
+      localStorage.removeItem("photosync_session_token");
       return false;
     } finally {
       setLoading(false);
@@ -51,22 +62,18 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const login = () => {
-    // REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
-    const redirectUrl = window.location.origin + "/dashboard";
-    window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
+    window.location.href = `${BACKEND_URL}/api/auth/google/login`;
   };
 
   const logout = async () => {
     try {
-      await fetch(`${BACKEND_URL}/api/auth/logout`, {
-        method: "POST",
-        credentials: "include",
-      });
+      await apiFetch("/api/auth/logout", { method: "POST" });
     } catch (error) {
       console.error("Logout error:", error);
     }
     setUser(null);
     localStorage.removeItem("photosync_user");
+    localStorage.removeItem("photosync_session_token");
     window.location.href = "/";
   };
 

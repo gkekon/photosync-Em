@@ -46,8 +46,7 @@ import CalendarDialog from "../components/CalendarDialog";
 import ThemeSwitcher from "../components/ThemeSwitcher";
 import SettingsDialog from "../components/SettingsDialog";
 import AnalyticsPanel from "../components/AnalyticsPanel";
-
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+import { apiFetch } from "../utils/api";
 
 export default function Dashboard() {
   const { user, setUser, logout, checkAuth } = useAuth();
@@ -89,10 +88,10 @@ export default function Dashboard() {
   const fetchData = useCallback(async () => {
     try {
       const [eventsRes, packagesRes, summaryRes, calStatusRes] = await Promise.all([
-        fetch(`${BACKEND_URL}/api/events`, { credentials: "include" }),
-        fetch(`${BACKEND_URL}/api/packages`, { credentials: "include" }),
-        fetch(`${BACKEND_URL}/api/income/summary`, { credentials: "include" }),
-        fetch(`${BACKEND_URL}/api/calendar/status`, { credentials: "include" }),
+        apiFetch("/api/events"),
+        apiFetch("/api/packages"),
+        apiFetch("/api/income/summary"),
+        apiFetch("/api/calendar/status"),
       ]);
 
       if (eventsRes.ok) setEvents(await eventsRes.json());
@@ -142,9 +141,8 @@ export default function Dashboard() {
   // Silent sync (no toast on success, used for auto-sync)
   const syncCalendarSilent = async () => {
     try {
-      const response = await fetch(`${BACKEND_URL}/api/calendar/sync`, {
+      const response = await apiFetch("/api/calendar/sync", {
         method: "POST",
-        credentials: "include",
       });
       if (response.ok) {
         fetchData();
@@ -163,9 +161,8 @@ export default function Dashboard() {
 
     setSyncing(true);
     try {
-      const response = await fetch(`${BACKEND_URL}/api/calendar/sync`, {
+      const response = await apiFetch("/api/calendar/sync", {
         method: "POST",
-        credentials: "include",
       });
 
       if (response.ok) {
@@ -208,13 +205,12 @@ export default function Dashboard() {
     try {
       const isEdit = selectedEvent?.event_id;
       const url = isEdit
-        ? `${BACKEND_URL}/api/events/${selectedEvent.event_id}`
-        : `${BACKEND_URL}/api/events`;
+        ? `/api/events/${selectedEvent.event_id}`
+        : `/api/events`;
 
-      const response = await fetch(url, {
+      const response = await apiFetch(url, {
         method: isEdit ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify(eventData),
       });
 
@@ -233,9 +229,8 @@ export default function Dashboard() {
 
   const handleEventDelete = async (eventId) => {
     try {
-      const response = await fetch(`${BACKEND_URL}/api/events/${eventId}`, {
+      const response = await apiFetch(`/api/events/${eventId}`, {
         method: "DELETE",
-        credentials: "include",
       });
 
       if (response.ok) {
@@ -251,27 +246,11 @@ export default function Dashboard() {
     }
   };
 
-  // Export functions - get token from localStorage for download URL
-  const getSessionToken = () => {
-    const user = localStorage.getItem("photosync_user");
-    if (user) {
-      try {
-        // Get token from cookie (this is a workaround)
-        const cookies = document.cookie.split(';');
-        for (let cookie of cookies) {
-          const [name, value] = cookie.trim().split('=');
-          if (name === 'session_token') return value;
-        }
-      } catch (e) {}
-    }
-    return null;
-  };
+  // Export functions
 
   const handleExportCSV = async () => {
     try {
-      const response = await fetch(`${BACKEND_URL}/api/export/csv`, {
-        credentials: "include",
-      });
+      const response = await apiFetch("/api/export/csv");
       if (response.ok) {
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
@@ -297,9 +276,7 @@ export default function Dashboard() {
 
   const handleExportSummary = async () => {
     try {
-      const response = await fetch(`${BACKEND_URL}/api/export/summary`, {
-        credentials: "include",
-      });
+      const response = await apiFetch("/api/export/summary");
       if (response.ok) {
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
@@ -327,13 +304,12 @@ export default function Dashboard() {
     try {
       const isEdit = selectedPackage?.package_id;
       const url = isEdit
-        ? `${BACKEND_URL}/api/packages/${selectedPackage.package_id}`
-        : `${BACKEND_URL}/api/packages`;
+        ? `/api/packages/${selectedPackage.package_id}`
+        : `/api/packages`;
 
-      const response = await fetch(url, {
+      const response = await apiFetch(url, {
         method: isEdit ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify(packageData),
       });
 
@@ -352,9 +328,8 @@ export default function Dashboard() {
 
   const handlePackageDelete = async (packageId) => {
     try {
-      const response = await fetch(`${BACKEND_URL}/api/packages/${packageId}`, {
+      const response = await apiFetch(`/api/packages/${packageId}`, {
         method: "DELETE",
-        credentials: "include",
       });
 
       if (response.ok) {
