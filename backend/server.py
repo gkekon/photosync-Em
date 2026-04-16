@@ -30,7 +30,7 @@ GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID')
 GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET')
 # FRONTEND_URL can be set in .env for production, defaults to preview URL
 FRONTEND_URL = os.environ.get('FRONTEND_URL', os.environ.get('REACT_APP_BACKEND_URL', 'https://photo-sync-dashboard.preview.emergentagent.com').replace('/api', '').rstrip('/'))
-BACKEND_URL_ENV = os.environ.get('BACKEND_URL')
+BACKEND_URL_ENV = os.environ.get('BACKEND_URL', '').strip().strip('=')
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
