@@ -31,6 +31,7 @@ const ProtectedRoute = ({ children }) => {
         localStorage.removeItem("photosync_user");
         localStorage.removeItem("photosync_session_token");
         navigate("/", { replace: true });
+        return; // Don't set isChecking=false, prevent dashboard flash
       }
       setIsChecking(false);
     };

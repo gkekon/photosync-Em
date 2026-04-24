@@ -955,6 +955,16 @@ async def root():
 async def health():
     return {"status": "healthy"}
 
+@api_router.get("/debug/config")
+async def debug_config():
+    """Debug endpoint - shows config without secrets"""
+    return {
+        "frontend_url": FRONTEND_URL,
+        "backend_url": BACKEND_URL_ENV,
+        "google_client_id_prefix": GOOGLE_CLIENT_ID[:20] + "..." if GOOGLE_CLIENT_ID else None,
+        "has_google_secret": bool(GOOGLE_CLIENT_SECRET),
+    }
+
 # Include router and middleware
 app.include_router(api_router)
 
