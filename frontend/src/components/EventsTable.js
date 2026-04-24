@@ -1,12 +1,41 @@
+import { useState } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { Badge } from "../components/ui/badge";
 import { Checkbox } from "../components/ui/checkbox";
-import { Check, X, MapPin, Video } from "lucide-react";
+import { Check, X, MapPin, Video, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 import { apiFetch } from "../utils/api";
 
+const SortableHeader = ({ label, sortKey, currentSort, onSort, className = "", children }) => {
+  const isActive = currentSort.key === sortKey;
+  const icon = isActive
+    ? currentSort.dir === "asc" ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+    : <ArrowUpDown className="w-3 h-3 opacity-0 group-hover:opacity-40" />;
+
+  return (
+    <TableHead
+      className={`text-muted-foreground font-medium cursor-pointer select-none group hover:text-foreground transition-colors ${className}`}
+      onClick={() => onSort(sortKey)}
+      data-testid={`sort-${sortKey}`}
+    >
+      <div className="flex items-center gap-1">
+        {children || label}
+        {icon}
+      </div>
+    </TableHead>
+  );
+};
+
 export const EventsTable = ({ events, packages, onEdit, formatCurrency, onRefresh }) => {
   const { currentTheme } = useTheme();
+  const [sort, setSort] = useState({ key: "date", dir: "asc" });
+
+  const handleSort = (key) => {
+    setSort((prev) => ({
+      key,
+      dir: prev.key === key && prev.dir === "asc" ? "desc" : "asc",
+    }));
+  };
 
   const getPackageName = (packageId) => {
     const pkg = packages.find((p) => p.package_id === packageId);
@@ -24,6 +53,29 @@ export const EventsTable = ({ events, packages, onEdit, formatCurrency, onRefres
         return "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
     }
   };
+
+  const statusOrder = { completed: 0, booked: 1, unbooked: 2 };
+
+  // Sort events
+  const sortedEvents = [...events].sort((a, b) => {
+    const dir = sort.dir === "asc" ? 1 : -1;
+    switch (sort.key) {
+      case "date":
+        return (a.date || "").localeCompare(b.date || "") * dir;
+      case "name":
+        return (a.name || "").localeCompare(b.name || "") * dir;
+      case "status":
+        return ((statusOrder[a.status] || 2) - (statusOrder[b.status] || 2)) * dir;
+      case "offer_price":
+        return ((a.total_offer_price || 0) - (b.total_offer_price || 0)) * dir;
+      case "income":
+        return ((a.clear_income || 0) - (b.clear_income || 0)) * dir;
+      case "deposit":
+        return ((a.deposit ? 1 : 0) - (b.deposit ? 1 : 0)) * dir;
+      default:
+        return 0;
+    }
+  });
 
   // Quick toggle for video checkbox
   const handleVideoToggle = async (event, checked) => {
@@ -53,21 +105,21 @@ export const EventsTable = ({ events, packages, onEdit, formatCurrency, onRefres
       <Table data-testid="events-table">
         <TableHeader>
           <TableRow className="hover:bg-transparent border-border">
-            <TableHead className="text-muted-foreground font-medium">Date</TableHead>
-            <TableHead className="text-muted-foreground font-medium">Name</TableHead>
+            <SortableHeader label="Date" sortKey="date" currentSort={sort} onSort={handleSort} />
+            <SortableHeader label="Name" sortKey="name" currentSort={sort} onSort={handleSort} />
             <TableHead className="text-muted-foreground font-medium text-center w-[60px]">
               <Video className="w-4 h-4 mx-auto" />
             </TableHead>
             <TableHead className="text-muted-foreground font-medium hidden md:table-cell">Package</TableHead>
             <TableHead className="text-muted-foreground font-medium hidden lg:table-cell">Location</TableHead>
-            <TableHead className="text-muted-foreground font-medium text-center">Deposit</TableHead>
-            <TableHead className="text-muted-foreground font-medium text-right hidden sm:table-cell">Offer Price</TableHead>
-            <TableHead className="text-muted-foreground font-medium text-right">Income</TableHead>
-            <TableHead className="text-muted-foreground font-medium text-center">Status</TableHead>
+            <SortableHeader label="Deposit" sortKey="deposit" currentSort={sort} onSort={handleSort} className="text-center" />
+            <SortableHeader label="Offer Price" sortKey="offer_price" currentSort={sort} onSort={handleSort} className="text-right hidden sm:table-cell" />
+            <SortableHeader label="Income" sortKey="income" currentSort={sort} onSort={handleSort} className="text-right" />
+            <SortableHeader label="Status" sortKey="status" currentSort={sort} onSort={handleSort} className="text-center" />
           </TableRow>
         </TableHeader>
         <TableBody>
-          {events.map((event, index) => (
+          {sortedEvents.map((event, index) => (
             <TableRow
               key={event.event_id}
               className="cursor-pointer border-border hover:bg-accent/50 transition-colors"
