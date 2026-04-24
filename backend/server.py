@@ -995,7 +995,19 @@ async def debug_config():
 async def debug_last_auth():
     """Show the last auth attempt debug info"""
     docs = await db.auth_debug.find({}, {"_id": 0}).sort("ts", -1).to_list(5)
-    return {"last_attempts": docs}
+    # Also check how many sessions exist
+    session_count = await db.user_sessions.count_documents({})
+    user_count = await db.users.count_documents({})
+    return {"last_attempts": docs, "total_sessions": session_count, "total_users": user_count}
+
+@api_router.get("/debug/verify-token")
+async def debug_verify_token(token: str):
+    """Test if a session token is valid"""
+    session_doc = await db.user_sessions.find_one({"session_token": token}, {"_id": 0})
+    if not session_doc:
+        return {"valid": False, "error": "session not found"}
+    user_doc = await db.users.find_one({"user_id": session_doc["user_id"]}, {"_id": 0})
+    return {"valid": True, "user_id": session_doc["user_id"], "has_user": user_doc is not None}
 
 # Include router and middleware
 app.include_router(api_router)
