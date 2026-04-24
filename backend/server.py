@@ -151,16 +151,24 @@ class ThemeUpdate(BaseModel):
 async def get_current_user(request: Request) -> User:
     """Get current user from session token (cookie or header)"""
     session_token = request.cookies.get("session_token")
+    token_source = "cookie" if session_token else None
     if not session_token:
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
             session_token = auth_header.split(" ")[1]
+            token_source = "bearer"
     
     if not session_token:
+        logger.warning(f"Auth failed: no token. Cookie keys: {list(request.cookies.keys())}, Auth header present: {bool(request.headers.get('Authorization'))}")
         raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    logger.info(f"Auth attempt: source={token_source}, token_prefix={session_token[:15]}...")
     
     session_doc = await db.user_sessions.find_one({"session_token": session_token}, {"_id": 0})
     if not session_doc:
+        # Check how many sessions exist
+        total_sessions = await db.user_sessions.count_documents({})
+        logger.warning(f"Auth failed: session not found. Token prefix: {session_token[:15]}, Total sessions in DB: {total_sessions}")
         raise HTTPException(status_code=401, detail="Invalid session")
     
     expires_at = session_doc["expires_at"]
@@ -1005,9 +1013,21 @@ async def debug_verify_token(token: str):
     """Test if a session token is valid"""
     session_doc = await db.user_sessions.find_one({"session_token": token}, {"_id": 0})
     if not session_doc:
-        return {"valid": False, "error": "session not found"}
+        total = await db.user_sessions.count_documents({})
+        # Get all session token prefixes
+        all_sessions = await db.user_sessions.find({}, {"_id": 0, "session_token": 1}).to_list(20)
+        prefixes = [s["session_token"][:15] for s in all_sessions]
+        return {"valid": False, "error": "session not found", "total_sessions": total, "existing_prefixes": prefixes, "searched_prefix": token[:15]}
     user_doc = await db.users.find_one({"user_id": session_doc["user_id"]}, {"_id": 0})
     return {"valid": True, "user_id": session_doc["user_id"], "has_user": user_doc is not None}
+
+@api_router.get("/debug/sessions")
+async def debug_sessions():
+    """List all active sessions"""
+    sessions = await db.user_sessions.find({}, {"_id": 0}).to_list(20)
+    for s in sessions:
+        s["session_token"] = s["session_token"][:15] + "..."
+    return {"sessions": sessions, "count": len(sessions)}
 
 # Include router and middleware
 app.include_router(api_router)
