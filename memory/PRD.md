@@ -20,10 +20,12 @@ Features: Date, Name, Info, Package, Deposit (yes/no), Deposit Amount, Attached 
 - Dark/Light theme switcher with multiple themes
 - PWA support (installable on iOS/Mac)
 - CSV Export for Apple Numbers compatibility
+- **CSV Import with preview and duplicate detection** (April 2026)
 - Mobile responsive design
 - **Standalone Google OAuth** replacing Emergent auth (April 2026)
 - **CORS fix** for cross-domain Railway deployment (April 2026)
 - **Dedicated /auth/callback route** for reliable token handling (April 2026)
+- **Data migration** from CSV backups - 147 events imported (April 2026)
 - Railway deployment configuration
 - GitHub repository push with clean .gitignore
 
