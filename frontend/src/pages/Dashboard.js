@@ -96,60 +96,6 @@ export default function Dashboard() {
     localStorage.setItem("selectedCalendar", calendarId);
   };
 
-  // Refetch when calendar changes
-  useEffect(() => {
-    fetchData();
-  }, [selectedCalendar, fetchData]);
-
-  // Create backup
-  const handleBackup = async () => {
-    try {
-      const response = await apiFetch("/api/backup/create", { method: "POST" });
-      if (response.ok) {
-        const result = await response.json();
-        toast.success(`Backup created: ${result.events_count} events, ${result.packages_count} packages`);
-      } else {
-        toast.error("Failed to create backup");
-      }
-    } catch (error) {
-      console.error("Backup error:", error);
-      toast.error("Failed to create backup");
-    }
-  };
-
-  // Clear calendar events
-  const handleClearCalendar = async () => {
-    const calLabel = selectedCalendar === "all" ? "ALL calendars" :
-      selectedCalendar === "untagged" ? "Manually Added" :
-      events.length > 0 ? (events[0]?.source_calendar_name || selectedCalendar) : selectedCalendar;
-    const count = events.length;
-
-    if (!window.confirm(`Are you sure you want to delete ${count} events from "${calLabel}"?\n\nThis action cannot be undone. Consider creating a backup first.`)) {
-      return;
-    }
-
-    try {
-      const response = await apiFetch("/api/events/clear", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          calendar_id: selectedCalendar === "all" ? "all" : selectedCalendar,
-          confirm: true,
-        }),
-      });
-      if (response.ok) {
-        const result = await response.json();
-        toast.success(`Deleted ${result.deleted} events`);
-        fetchData();
-      } else {
-        toast.error("Failed to clear events");
-      }
-    } catch (error) {
-      console.error("Clear error:", error);
-      toast.error("Failed to clear events");
-    }
-  };
-
   // Fetch all data
   const fetchData = useCallback(async () => {
     try {
@@ -218,6 +164,56 @@ export default function Dashboard() {
       console.error("Auto-sync error:", error);
     }
   };
+
+  // Create backup
+  const handleBackup = async () => {
+    try {
+      const response = await apiFetch("/api/backup/create", { method: "POST" });
+      if (response.ok) {
+        const result = await response.json();
+        toast.success(`Backup created: ${result.events_count} events, ${result.packages_count} packages`);
+      } else {
+        toast.error("Failed to create backup");
+      }
+    } catch (error) {
+      console.error("Backup error:", error);
+      toast.error("Failed to create backup");
+    }
+  };
+
+  // Clear calendar events
+  const handleClearCalendar = async () => {
+    const calLabel = selectedCalendar === "all" ? "ALL calendars" :
+      selectedCalendar === "untagged" ? "Manually Added" :
+      events.length > 0 ? (events[0]?.source_calendar_name || selectedCalendar) : selectedCalendar;
+    const count = events.length;
+
+    if (!window.confirm(`Are you sure you want to delete ${count} events from "${calLabel}"?\n\nThis action cannot be undone. Consider creating a backup first.`)) {
+      return;
+    }
+
+    try {
+      const response = await apiFetch("/api/events/clear", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          calendar_id: selectedCalendar === "all" ? "all" : selectedCalendar,
+          confirm: true,
+        }),
+      });
+      if (response.ok) {
+        const result = await response.json();
+        toast.success(`Deleted ${result.deleted} events`);
+        fetchData();
+      } else {
+        toast.error("Failed to clear events");
+      }
+    } catch (error) {
+      console.error("Clear error:", error);
+      toast.error("Failed to clear events");
+    }
+  };
+
 
   // Sync calendar events
   const syncCalendar = async () => {
