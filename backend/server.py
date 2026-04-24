@@ -151,24 +151,16 @@ class ThemeUpdate(BaseModel):
 async def get_current_user(request: Request) -> User:
     """Get current user from session token (cookie or header)"""
     session_token = request.cookies.get("session_token")
-    token_source = "cookie" if session_token else None
     if not session_token:
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
             session_token = auth_header.split(" ")[1]
-            token_source = "bearer"
     
     if not session_token:
-        logger.warning(f"Auth failed: no token. Cookie keys: {list(request.cookies.keys())}, Auth header present: {bool(request.headers.get('Authorization'))}")
         raise HTTPException(status_code=401, detail="Not authenticated")
-    
-    logger.info(f"Auth attempt: source={token_source}, token_prefix={session_token[:15]}...")
     
     session_doc = await db.user_sessions.find_one({"session_token": session_token}, {"_id": 0})
     if not session_doc:
-        # Check how many sessions exist
-        total_sessions = await db.user_sessions.count_documents({})
-        logger.warning(f"Auth failed: session not found. Token prefix: {session_token[:15]}, Total sessions in DB: {total_sessions}")
         raise HTTPException(status_code=401, detail="Invalid session")
     
     expires_at = session_doc["expires_at"]
@@ -218,24 +210,17 @@ async def auth_google_login(request: Request):
 @api_router.get("/auth/google/callback")
 async def auth_google_callback(request: Request, code: str = None, error: str = None):
     """Handle Google OAuth callback for login"""
-    debug_info = {"step": "start", "error": None}
-    
+    if error:
+        logger.error(f"Google OAuth error: {error}")
+        return RedirectResponse(url=f"{FRONTEND_URL}/?auth_error={error}")
+
+    if not code:
+        return RedirectResponse(url=f"{FRONTEND_URL}/?auth_error=no_code")
+
+    backend_url = get_backend_url(request)
+    redirect_uri = f"{backend_url}/api/auth/google/callback"
+
     try:
-        if error:
-            debug_info = {"step": "google_error", "error": error}
-            await db.auth_debug.insert_one({"ts": datetime.now(timezone.utc).isoformat(), **debug_info})
-            return RedirectResponse(url=f"{FRONTEND_URL}/?auth_error={error}")
-
-        if not code:
-            debug_info = {"step": "no_code", "error": "no code provided"}
-            await db.auth_debug.insert_one({"ts": datetime.now(timezone.utc).isoformat(), **debug_info})
-            return RedirectResponse(url=f"{FRONTEND_URL}/?auth_error=no_code")
-
-        backend_url = get_backend_url(request)
-        redirect_uri = f"{backend_url}/api/auth/google/callback"
-        debug_info["step"] = "exchanging_token"
-        debug_info["redirect_uri"] = redirect_uri
-
         # Exchange code for tokens
         async with httpx.AsyncClient() as http_client:
             token_resp = await http_client.post(
@@ -250,14 +235,10 @@ async def auth_google_callback(request: Request, code: str = None, error: str = 
             )
 
             if token_resp.status_code != 200:
-                debug_info = {"step": "token_exchange_failed", "error": token_resp.text, "redirect_uri": redirect_uri}
-                await db.auth_debug.insert_one({"ts": datetime.now(timezone.utc).isoformat(), **debug_info})
                 logger.error(f"Login token exchange failed: {token_resp.text}")
                 return RedirectResponse(url=f"{FRONTEND_URL}/?auth_error=token_failed")
 
             tokens = token_resp.json()
-
-        debug_info["step"] = "getting_user_info"
 
         # Get user info from Google
         async with httpx.AsyncClient() as http_client:
@@ -267,8 +248,6 @@ async def auth_google_callback(request: Request, code: str = None, error: str = 
             )
 
             if userinfo_resp.status_code != 200:
-                debug_info = {"step": "userinfo_failed", "error": userinfo_resp.text}
-                await db.auth_debug.insert_one({"ts": datetime.now(timezone.utc).isoformat(), **debug_info})
                 logger.error(f"User info failed: {userinfo_resp.text}")
                 return RedirectResponse(url=f"{FRONTEND_URL}/?auth_error=userinfo_failed")
 
@@ -309,10 +288,6 @@ async def auth_google_callback(request: Request, code: str = None, error: str = 
             "created_at": datetime.now(timezone.utc).isoformat()
         })
 
-        # Store success debug info
-        debug_info = {"step": "success", "email": email, "user_id": user_id, "token_prefix": session_token[:10]}
-        await db.auth_debug.insert_one({"ts": datetime.now(timezone.utc).isoformat(), **debug_info})
-
         # Redirect to frontend auth callback with session token
         redirect_url = f"{FRONTEND_URL}/auth/callback?session_token={session_token}"
         redirect_response = RedirectResponse(url=redirect_url)
@@ -328,11 +303,6 @@ async def auth_google_callback(request: Request, code: str = None, error: str = 
 
         return redirect_response
     except Exception as e:
-        debug_info = {"step": "exception", "error": str(e)}
-        try:
-            await db.auth_debug.insert_one({"ts": datetime.now(timezone.utc).isoformat(), **debug_info})
-        except:
-            pass
         logger.error(f"Auth callback exception: {e}")
         return RedirectResponse(url=f"{FRONTEND_URL}/?auth_error=server_error")
 
@@ -988,46 +958,6 @@ async def root():
 @api_router.get("/health")
 async def health():
     return {"status": "healthy"}
-
-@api_router.get("/debug/config")
-async def debug_config():
-    """Debug endpoint - shows config without secrets"""
-    return {
-        "frontend_url": FRONTEND_URL,
-        "backend_url": BACKEND_URL_ENV,
-        "google_client_id_prefix": GOOGLE_CLIENT_ID[:20] + "..." if GOOGLE_CLIENT_ID else None,
-        "has_google_secret": bool(GOOGLE_CLIENT_SECRET),
-    }
-
-@api_router.get("/debug/last-auth")
-async def debug_last_auth():
-    """Show the last auth attempt debug info"""
-    docs = await db.auth_debug.find({}, {"_id": 0}).sort("ts", -1).to_list(5)
-    # Also check how many sessions exist
-    session_count = await db.user_sessions.count_documents({})
-    user_count = await db.users.count_documents({})
-    return {"last_attempts": docs, "total_sessions": session_count, "total_users": user_count}
-
-@api_router.get("/debug/verify-token")
-async def debug_verify_token(token: str):
-    """Test if a session token is valid"""
-    session_doc = await db.user_sessions.find_one({"session_token": token}, {"_id": 0})
-    if not session_doc:
-        total = await db.user_sessions.count_documents({})
-        # Get all session token prefixes
-        all_sessions = await db.user_sessions.find({}, {"_id": 0, "session_token": 1}).to_list(20)
-        prefixes = [s["session_token"][:15] for s in all_sessions]
-        return {"valid": False, "error": "session not found", "total_sessions": total, "existing_prefixes": prefixes, "searched_prefix": token[:15]}
-    user_doc = await db.users.find_one({"user_id": session_doc["user_id"]}, {"_id": 0})
-    return {"valid": True, "user_id": session_doc["user_id"], "has_user": user_doc is not None}
-
-@api_router.get("/debug/sessions")
-async def debug_sessions():
-    """List all active sessions"""
-    sessions = await db.user_sessions.find({}, {"_id": 0}).to_list(20)
-    for s in sessions:
-        s["session_token"] = s["session_token"][:15] + "..."
-    return {"sessions": sessions, "count": len(sessions)}
 
 # Include router and middleware
 app.include_router(api_router)
