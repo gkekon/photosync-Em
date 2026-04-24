@@ -313,8 +313,8 @@ async def auth_google_callback(request: Request, code: str = None, error: str = 
         debug_info = {"step": "success", "email": email, "user_id": user_id, "token_prefix": session_token[:10]}
         await db.auth_debug.insert_one({"ts": datetime.now(timezone.utc).isoformat(), **debug_info})
 
-        # Redirect to frontend with session token (for cross-domain support)
-        redirect_url = f"{FRONTEND_URL}/dashboard?session_token={session_token}"
+        # Redirect to frontend auth callback with session token
+        redirect_url = f"{FRONTEND_URL}/auth/callback?session_token={session_token}"
         redirect_response = RedirectResponse(url=redirect_url)
         redirect_response.set_cookie(
             key="session_token",

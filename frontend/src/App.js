@@ -5,6 +5,7 @@ import { ThemeProvider } from "./context/ThemeContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import LoginPage from "./pages/LoginPage";
 import Dashboard from "./pages/Dashboard";
+import AuthCallbackPage from "./pages/AuthCallbackPage";
 import "./App.css";
 
 // Protected route wrapper
@@ -18,8 +19,7 @@ const ProtectedRoute = ({ children }) => {
     const storedUser = localStorage.getItem("photosync_user");
     if (storedUser) {
       try {
-        const parsedUser = JSON.parse(storedUser);
-        setUser(parsedUser);
+        setUser(JSON.parse(storedUser));
       } catch (e) {
         localStorage.removeItem("photosync_user");
       }
@@ -29,9 +29,8 @@ const ProtectedRoute = ({ children }) => {
       const authenticated = await checkAuth();
       if (!authenticated) {
         localStorage.removeItem("photosync_user");
-        localStorage.removeItem("photosync_session_token");
         navigate("/", { replace: true });
-        return; // Don't set isChecking=false, prevent dashboard flash
+        return;
       }
       setIsChecking(false);
     };
@@ -57,6 +56,7 @@ function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<LoginPage />} />
+            <Route path="/auth/callback" element={<AuthCallbackPage />} />
             <Route
               path="/dashboard"
               element={

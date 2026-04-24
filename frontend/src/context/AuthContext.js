@@ -5,19 +5,6 @@ const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(() => {
-    // Handle session_token from URL SYNCHRONOUSLY (before any effects)
-    const params = new URLSearchParams(window.location.search);
-    const token = params.get("session_token");
-    if (token) {
-      localStorage.setItem("photosync_session_token", token);
-      // Clean the URL
-      params.delete("session_token");
-      const newSearch = params.toString();
-      const newUrl = window.location.pathname + (newSearch ? `?${newSearch}` : "");
-      window.history.replaceState({}, "", newUrl);
-    }
-
-    // Try to restore user from localStorage
     const stored = localStorage.getItem("photosync_user");
     if (stored) {
       try {
@@ -38,6 +25,12 @@ export const AuthProvider = ({ children }) => {
   }, [user]);
 
   const checkAuth = useCallback(async () => {
+    const token = localStorage.getItem("photosync_session_token");
+    if (!token) {
+      setUser(null);
+      return false;
+    }
+
     setLoading(true);
     try {
       const response = await apiFetch("/api/auth/me");
@@ -48,13 +41,11 @@ export const AuthProvider = ({ children }) => {
       }
       setUser(null);
       localStorage.removeItem("photosync_user");
-      localStorage.removeItem("photosync_session_token");
       return false;
     } catch (error) {
       console.error("Auth check error:", error);
       setUser(null);
       localStorage.removeItem("photosync_user");
-      localStorage.removeItem("photosync_session_token");
       return false;
     } finally {
       setLoading(false);
