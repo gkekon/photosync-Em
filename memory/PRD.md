@@ -21,6 +21,9 @@ Features: Date, Name, Info, Package, Deposit (yes/no), Deposit Amount, Attached 
 - PWA support (installable on iOS/Mac)
 - CSV Export for Apple Numbers compatibility
 - **CSV Import with preview and duplicate detection** (April 2026)
+- **Calendar source filter** - switch between calendars in header (April 2026)
+- **Backup system** - create/list/download/restore snapshots (April 2026)
+- **Clear calendar** - delete events by calendar with confirmation (April 2026)
 - Mobile responsive design
 - **Standalone Google OAuth** replacing Emergent auth (April 2026)
 - **CORS fix** for cross-domain Railway deployment (April 2026)
@@ -44,7 +47,6 @@ Features: Date, Name, Info, Package, Deposit (yes/no), Deposit Amount, Attached 
   - https://photosync-em-production.up.railway.app/api/oauth/calendar/callback
 
 ## Backlog
-- P1: CSV Import UI feature (upload button in Settings menu)
 - P1: File attachments for offers (requires cloud storage setup)
 - P2: Multi-year analytics view
 - P3: Email notifications for upcoming events
