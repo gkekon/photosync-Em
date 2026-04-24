@@ -42,6 +42,7 @@ Features: Date, Name, Info, Package, Deposit (yes/no), Deposit Amount, Attached 
   - https://photosync-em-production.up.railway.app/api/oauth/calendar/callback
 
 ## Backlog
+- P1: CSV Import UI feature (upload button in Settings menu)
 - P1: File attachments for offers (requires cloud storage setup)
 - P2: Multi-year analytics view
 - P3: Email notifications for upcoming events
