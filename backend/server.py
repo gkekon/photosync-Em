@@ -210,97 +210,123 @@ async def auth_google_login(request: Request):
 @api_router.get("/auth/google/callback")
 async def auth_google_callback(request: Request, code: str = None, error: str = None):
     """Handle Google OAuth callback for login"""
-    if error:
-        logger.error(f"Google OAuth error: {error}")
-        return RedirectResponse(url=f"{FRONTEND_URL}/?auth_error={error}")
+    debug_info = {"step": "start", "error": None}
+    
+    try:
+        if error:
+            debug_info = {"step": "google_error", "error": error}
+            await db.auth_debug.insert_one({"ts": datetime.now(timezone.utc).isoformat(), **debug_info})
+            return RedirectResponse(url=f"{FRONTEND_URL}/?auth_error={error}")
 
-    if not code:
-        return RedirectResponse(url=f"{FRONTEND_URL}/?auth_error=no_code")
+        if not code:
+            debug_info = {"step": "no_code", "error": "no code provided"}
+            await db.auth_debug.insert_one({"ts": datetime.now(timezone.utc).isoformat(), **debug_info})
+            return RedirectResponse(url=f"{FRONTEND_URL}/?auth_error=no_code")
 
-    backend_url = get_backend_url(request)
-    redirect_uri = f"{backend_url}/api/auth/google/callback"
+        backend_url = get_backend_url(request)
+        redirect_uri = f"{backend_url}/api/auth/google/callback"
+        debug_info["step"] = "exchanging_token"
+        debug_info["redirect_uri"] = redirect_uri
 
-    # Exchange code for tokens
-    async with httpx.AsyncClient() as http_client:
-        token_resp = await http_client.post(
-            "https://oauth2.googleapis.com/token",
-            data={
-                "code": code,
-                "client_id": GOOGLE_CLIENT_ID,
-                "client_secret": GOOGLE_CLIENT_SECRET,
-                "redirect_uri": redirect_uri,
-                "grant_type": "authorization_code"
-            }
+        # Exchange code for tokens
+        async with httpx.AsyncClient() as http_client:
+            token_resp = await http_client.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "code": code,
+                    "client_id": GOOGLE_CLIENT_ID,
+                    "client_secret": GOOGLE_CLIENT_SECRET,
+                    "redirect_uri": redirect_uri,
+                    "grant_type": "authorization_code"
+                }
+            )
+
+            if token_resp.status_code != 200:
+                debug_info = {"step": "token_exchange_failed", "error": token_resp.text, "redirect_uri": redirect_uri}
+                await db.auth_debug.insert_one({"ts": datetime.now(timezone.utc).isoformat(), **debug_info})
+                logger.error(f"Login token exchange failed: {token_resp.text}")
+                return RedirectResponse(url=f"{FRONTEND_URL}/?auth_error=token_failed")
+
+            tokens = token_resp.json()
+
+        debug_info["step"] = "getting_user_info"
+
+        # Get user info from Google
+        async with httpx.AsyncClient() as http_client:
+            userinfo_resp = await http_client.get(
+                "https://www.googleapis.com/oauth2/v2/userinfo",
+                headers={"Authorization": f"Bearer {tokens['access_token']}"}
+            )
+
+            if userinfo_resp.status_code != 200:
+                debug_info = {"step": "userinfo_failed", "error": userinfo_resp.text}
+                await db.auth_debug.insert_one({"ts": datetime.now(timezone.utc).isoformat(), **debug_info})
+                logger.error(f"User info failed: {userinfo_resp.text}")
+                return RedirectResponse(url=f"{FRONTEND_URL}/?auth_error=userinfo_failed")
+
+            google_user = userinfo_resp.json()
+
+        # Create or update user
+        email = google_user.get("email")
+        name = google_user.get("name", email)
+        picture = google_user.get("picture")
+
+        existing_user = await db.users.find_one({"email": email}, {"_id": 0})
+
+        if existing_user:
+            user_id = existing_user["user_id"]
+            await db.users.update_one(
+                {"user_id": user_id},
+                {"$set": {"name": name, "picture": picture}}
+            )
+        else:
+            user_id = f"user_{uuid.uuid4().hex[:12]}"
+            new_user = User(
+                user_id=user_id,
+                email=email,
+                name=name,
+                picture=picture
+            )
+            await db.users.insert_one(new_user.model_dump())
+
+        # Create session
+        session_token = f"st_{uuid.uuid4().hex}"
+        expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+
+        await db.user_sessions.delete_many({"user_id": user_id})
+        await db.user_sessions.insert_one({
+            "user_id": user_id,
+            "session_token": session_token,
+            "expires_at": expires_at.isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+
+        # Store success debug info
+        debug_info = {"step": "success", "email": email, "user_id": user_id, "token_prefix": session_token[:10]}
+        await db.auth_debug.insert_one({"ts": datetime.now(timezone.utc).isoformat(), **debug_info})
+
+        # Redirect to frontend with session token (for cross-domain support)
+        redirect_url = f"{FRONTEND_URL}/dashboard?session_token={session_token}"
+        redirect_response = RedirectResponse(url=redirect_url)
+        redirect_response.set_cookie(
+            key="session_token",
+            value=session_token,
+            httponly=True,
+            secure=True,
+            samesite="none",
+            path="/",
+            max_age=7*24*60*60
         )
 
-        if token_resp.status_code != 200:
-            logger.error(f"Login token exchange failed: {token_resp.text}")
-            return RedirectResponse(url=f"{FRONTEND_URL}/?auth_error=token_failed")
-
-        tokens = token_resp.json()
-
-    # Get user info from Google
-    async with httpx.AsyncClient() as http_client:
-        userinfo_resp = await http_client.get(
-            "https://www.googleapis.com/oauth2/v2/userinfo",
-            headers={"Authorization": f"Bearer {tokens['access_token']}"}
-        )
-
-        if userinfo_resp.status_code != 200:
-            logger.error(f"User info failed: {userinfo_resp.text}")
-            return RedirectResponse(url=f"{FRONTEND_URL}/?auth_error=userinfo_failed")
-
-        google_user = userinfo_resp.json()
-
-    # Create or update user
-    email = google_user.get("email")
-    name = google_user.get("name", email)
-    picture = google_user.get("picture")
-
-    existing_user = await db.users.find_one({"email": email}, {"_id": 0})
-
-    if existing_user:
-        user_id = existing_user["user_id"]
-        await db.users.update_one(
-            {"user_id": user_id},
-            {"$set": {"name": name, "picture": picture}}
-        )
-    else:
-        user_id = f"user_{uuid.uuid4().hex[:12]}"
-        new_user = User(
-            user_id=user_id,
-            email=email,
-            name=name,
-            picture=picture
-        )
-        await db.users.insert_one(new_user.model_dump())
-
-    # Create session
-    session_token = f"st_{uuid.uuid4().hex}"
-    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
-
-    await db.user_sessions.delete_many({"user_id": user_id})
-    await db.user_sessions.insert_one({
-        "user_id": user_id,
-        "session_token": session_token,
-        "expires_at": expires_at.isoformat(),
-        "created_at": datetime.now(timezone.utc).isoformat()
-    })
-
-    # Redirect to frontend with session token (for cross-domain support)
-    redirect_url = f"{FRONTEND_URL}/dashboard?session_token={session_token}"
-    redirect_response = RedirectResponse(url=redirect_url)
-    redirect_response.set_cookie(
-        key="session_token",
-        value=session_token,
-        httponly=True,
-        secure=True,
-        samesite="none",
-        path="/",
-        max_age=7*24*60*60
-    )
-
-    return redirect_response
+        return redirect_response
+    except Exception as e:
+        debug_info = {"step": "exception", "error": str(e)}
+        try:
+            await db.auth_debug.insert_one({"ts": datetime.now(timezone.utc).isoformat(), **debug_info})
+        except:
+            pass
+        logger.error(f"Auth callback exception: {e}")
+        return RedirectResponse(url=f"{FRONTEND_URL}/?auth_error=server_error")
 
 @api_router.get("/auth/me")
 async def get_me(user: User = Depends(get_current_user)):
@@ -964,6 +990,12 @@ async def debug_config():
         "google_client_id_prefix": GOOGLE_CLIENT_ID[:20] + "..." if GOOGLE_CLIENT_ID else None,
         "has_google_secret": bool(GOOGLE_CLIENT_SECRET),
     }
+
+@api_router.get("/debug/last-auth")
+async def debug_last_auth():
+    """Show the last auth attempt debug info"""
+    docs = await db.auth_debug.find({}, {"_id": 0}).sort("ts", -1).to_list(5)
+    return {"last_attempts": docs}
 
 # Include router and middleware
 app.include_router(api_router)
