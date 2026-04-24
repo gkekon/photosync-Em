@@ -89,6 +89,8 @@ class Event(BaseModel):
     event_id: str = Field(default_factory=lambda: f"evt_{uuid.uuid4().hex[:12]}")
     user_id: str
     google_calendar_event_id: Optional[str] = None
+    source_calendar: Optional[str] = None  # Google Calendar ID this event came from
+    source_calendar_name: Optional[str] = None  # Human-readable calendar name
     date: str
     name: str
     has_video: bool = False  # Quick checkbox for video service
@@ -454,6 +456,13 @@ async def sync_calendar_events(user: User = Depends(get_current_user)):
     creds = await get_google_creds(user)
     service = build('calendar', 'v3', credentials=creds)
     
+    # Get calendar name
+    try:
+        cal_info = service.calendars().get(calendarId=calendar_id).execute()
+        calendar_name = cal_info.get("summary", calendar_id)
+    except Exception:
+        calendar_name = calendar_id
+    
     now = datetime.now(timezone.utc)
     time_min = (now - timedelta(days=365)).isoformat()
     time_max = (now + timedelta(days=365)).isoformat()
@@ -486,6 +495,8 @@ async def sync_calendar_events(user: User = Depends(get_current_user)):
                 new_event = Event(
                     user_id=user.user_id,
                     google_calendar_event_id=ge["id"],
+                    source_calendar=calendar_id,
+                    source_calendar_name=calendar_name,
                     date=date_str,
                     name=ge.get("summary", "Unnamed Event"),
                     info=ge.get("description"),
@@ -495,6 +506,13 @@ async def sync_calendar_events(user: User = Depends(get_current_user)):
                 await db.events.insert_one(new_event.model_dump())
                 synced_count += 1
         else:
+            # Tag source calendar if missing
+            if not existing.get("source_calendar"):
+                await db.events.update_one(
+                    {"event_id": existing["event_id"]},
+                    {"$set": {"source_calendar": calendar_id, "source_calendar_name": calendar_name}}
+                )
+            
             # Existing event - check for changes in Google Calendar
             start = ge.get("start", {}).get("dateTime") or ge.get("start", {}).get("date")
             date_str = start[:10] if start else existing.get("date")
@@ -613,9 +631,13 @@ async def delete_package(package_id: str, user: User = Depends(get_current_user)
 # ======================== EVENT ROUTES ========================
 
 @api_router.get("/events", response_model=List[Event])
-async def get_events(user: User = Depends(get_current_user)):
-    """Get all events for user"""
-    events = await db.events.find({"user_id": user.user_id}, {"_id": 0}).to_list(500)
+async def get_events(request: Request, user: User = Depends(get_current_user)):
+    """Get all events for user, optionally filtered by source calendar"""
+    calendar = request.query_params.get("calendar")
+    query = {"user_id": user.user_id}
+    if calendar and calendar != "all":
+        query["source_calendar"] = calendar
+    events = await db.events.find(query, {"_id": 0}).to_list(500)
     return events
 
 @api_router.post("/events", response_model=Event)
@@ -660,6 +682,143 @@ async def delete_event(event_id: str, user: User = Depends(get_current_user)):
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Event not found")
     return {"message": "Event deleted"}
+
+# ======================== CALENDAR SOURCE & CLEAR ROUTES ========================
+
+@api_router.get("/events/sources")
+async def get_event_sources(user: User = Depends(get_current_user)):
+    """Get unique source calendars from events"""
+    events = await db.events.find({"user_id": user.user_id}, {"_id": 0, "source_calendar": 1, "source_calendar_name": 1}).to_list(1000)
+    
+    sources = {}
+    untagged = 0
+    for e in events:
+        cal = e.get("source_calendar")
+        if cal:
+            if cal not in sources:
+                sources[cal] = {"id": cal, "name": e.get("source_calendar_name") or cal, "count": 0}
+            sources[cal]["count"] += 1
+        else:
+            untagged += 1
+    
+    result = list(sources.values())
+    result.sort(key=lambda x: -x["count"])
+    return {"sources": result, "untagged_count": untagged, "total": len(events)}
+
+@api_router.post("/events/clear")
+async def clear_events(request: Request, user: User = Depends(get_current_user)):
+    """Clear events by source calendar or all"""
+    body = await request.json()
+    calendar_id = body.get("calendar_id")  # None = clear all
+    confirm = body.get("confirm", False)
+    
+    if not confirm:
+        raise HTTPException(status_code=400, detail="Confirmation required")
+    
+    query = {"user_id": user.user_id}
+    if calendar_id and calendar_id != "all":
+        query["source_calendar"] = calendar_id
+    
+    result = await db.events.delete_many(query)
+    return {"deleted": result.deleted_count}
+
+# ======================== BACKUP ROUTES ========================
+
+@api_router.post("/backup/create")
+async def create_backup(user: User = Depends(get_current_user)):
+    """Create a backup snapshot of all events and packages"""
+    events = await db.events.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
+    packages = await db.packages.find({"user_id": user.user_id}, {"_id": 0}).to_list(100)
+    
+    backup_id = f"bak_{uuid.uuid4().hex[:12]}"
+    backup = {
+        "backup_id": backup_id,
+        "user_id": user.user_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "events_count": len(events),
+        "packages_count": len(packages),
+        "events": events,
+        "packages": packages,
+    }
+    await db.backups.insert_one(backup)
+    
+    return {
+        "backup_id": backup_id,
+        "events_count": len(events),
+        "packages_count": len(packages),
+        "created_at": backup["created_at"]
+    }
+
+@api_router.get("/backup/list")
+async def list_backups(user: User = Depends(get_current_user)):
+    """List all backups for user"""
+    backups = await db.backups.find(
+        {"user_id": user.user_id},
+        {"_id": 0, "events": 0, "packages": 0}
+    ).sort("created_at", -1).to_list(20)
+    return backups
+
+@api_router.get("/backup/download/{backup_id}")
+async def download_backup(backup_id: str, request: Request):
+    """Download a backup as JSON"""
+    user = await get_user_from_token_or_cookie(request)
+    backup = await db.backups.find_one(
+        {"backup_id": backup_id, "user_id": user.user_id},
+        {"_id": 0}
+    )
+    if not backup:
+        raise HTTPException(status_code=404, detail="Backup not found")
+    
+    import json as json_mod
+    content = json_mod.dumps(backup, indent=2, default=str)
+    return StreamingResponse(
+        io.BytesIO(content.encode('utf-8')),
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f"attachment; filename=photosync_backup_{backup_id}.json"
+        }
+    )
+
+@api_router.post("/backup/restore/{backup_id}")
+async def restore_backup(backup_id: str, user: User = Depends(get_current_user)):
+    """Restore events and packages from a backup"""
+    backup = await db.backups.find_one(
+        {"backup_id": backup_id, "user_id": user.user_id},
+        {"_id": 0}
+    )
+    if not backup:
+        raise HTTPException(status_code=404, detail="Backup not found")
+    
+    # Clear existing data
+    await db.events.delete_many({"user_id": user.user_id})
+    await db.packages.delete_many({"user_id": user.user_id})
+    
+    # Restore
+    events = backup.get("events", [])
+    packages = backup.get("packages", [])
+    
+    if events:
+        await db.events.insert_many(events)
+    if packages:
+        await db.packages.insert_many(packages)
+    
+    return {"restored_events": len(events), "restored_packages": len(packages)}
+
+@api_router.post("/events/tag-calendars")
+async def tag_event_calendars(request: Request, user: User = Depends(get_current_user)):
+    """Tag events with their source calendar based on provided mapping"""
+    body = await request.json()
+    mappings = body.get("mappings", {})  # {google_calendar_event_id: {source_calendar, source_calendar_name}}
+    
+    tagged = 0
+    for gcal_id, cal_info in mappings.items():
+        result = await db.events.update_many(
+            {"user_id": user.user_id, "google_calendar_event_id": gcal_id, "source_calendar": None},
+            {"$set": {"source_calendar": cal_info["source_calendar"], "source_calendar_name": cal_info["source_calendar_name"]}}
+        )
+        tagged += result.modified_count
+    
+    return {"tagged": tagged}
 
 # ======================== EXPORT ROUTES ========================
 
