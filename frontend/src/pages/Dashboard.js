@@ -709,6 +709,7 @@ export default function Dashboard() {
         onOpenChange={setSettingsDialogOpen}
         autoSync={autoSync}
         onAutoSyncChange={handleAutoSyncChange}
+        onImportComplete={fetchData}
       />
     </div>
   );

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, UploadFile, File
 from fastapi.responses import RedirectResponse, StreamingResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -788,6 +788,139 @@ async def export_summary_csv(request: Request):
             "Content-Disposition": f"attachment; filename=photosync_summary_{datetime.now().strftime('%Y%m%d')}.csv"
         }
     )
+
+# ======================== IMPORT ROUTES ========================
+
+# Column mappings for different CSV formats
+COLUMN_MAPS = {
+    # PhotoSync export format
+    "Date": "date", "Name": "name", "Has Video": "has_video",
+    "Info": "info", "Package": "package_name", "Location": "location",
+    "Deposit": "deposit", "Deposit Amount (EUR)": "deposit_amount",
+    "Attached Offers": "attached_offers",
+    "Photo Price (EUR)": "photo_offer_price", "Video Price (EUR)": "video_offer_price",
+    "Offer Price (EUR)": "total_offer_price", "Costs (EUR)": "costs",
+    "Clear Income (EUR)": "clear_income", "Status": "status",
+    "Google Calendar ID": "google_calendar_event_id",
+    # ChatGPT export format
+    "Video": "has_video", "Photo Price": "photo_offer_price",
+    "Video Price": "video_offer_price", "Offer Price": "total_offer_price",
+    "Costs": "costs", "Clear Income": "clear_income",
+    "Deposit Amount": "deposit_amount", "Offers": "attached_offers",
+    "Calendar ID": "google_calendar_event_id",
+}
+
+def parse_bool(val):
+    if isinstance(val, bool):
+        return val
+    return str(val).strip().lower() in ("yes", "true", "1")
+
+def parse_float(val):
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return 0.0
+
+@api_router.post("/import/preview")
+async def preview_import(file: UploadFile = File(...), user: User = Depends(get_current_user)):
+    """Preview CSV import - parse file and return events without saving"""
+    content = await file.read()
+    text = content.decode("utf-8-sig")
+    
+    reader = csv.DictReader(io.StringIO(text))
+    events = []
+    seen_cal_ids = set()
+    
+    # Get existing calendar IDs for duplicate detection
+    existing_events = await db.events.find(
+        {"user_id": user.user_id, "google_calendar_event_id": {"$ne": None}},
+        {"_id": 0, "google_calendar_event_id": 1}
+    ).to_list(1000)
+    existing_cal_ids = {e["google_calendar_event_id"] for e in existing_events}
+    
+    for row in reader:
+        event = {}
+        for csv_col, val in row.items():
+            csv_col = csv_col.strip()
+            field = COLUMN_MAPS.get(csv_col)
+            if field and val is not None:
+                event[field] = val.strip()
+        
+        if not event.get("date") or not event.get("name"):
+            continue
+        
+        # Parse types
+        event["has_video"] = parse_bool(event.get("has_video", False))
+        event["deposit"] = parse_bool(event.get("deposit", False))
+        event["photo_offer_price"] = parse_float(event.get("photo_offer_price", 0))
+        event["video_offer_price"] = parse_float(event.get("video_offer_price", 0))
+        event["total_offer_price"] = parse_float(event.get("total_offer_price", 0))
+        event["costs"] = parse_float(event.get("costs", 0))
+        event["clear_income"] = parse_float(event.get("clear_income", 0))
+        event["deposit_amount"] = parse_float(event.get("deposit_amount", 0))
+        event["status"] = event.get("status", "unbooked").lower()
+        
+        # Set None for empty strings
+        for key in ("info", "package_name", "location", "attached_offers", "google_calendar_event_id"):
+            if not event.get(key):
+                event[key] = None
+        
+        # Deduplicate within the CSV by calendar ID
+        cal_id = event.get("google_calendar_event_id")
+        if cal_id:
+            if cal_id.startswith("demo"):
+                event["google_calendar_event_id"] = None
+            elif cal_id in seen_cal_ids:
+                continue
+            else:
+                seen_cal_ids.add(cal_id)
+        
+        # Mark duplicates with existing DB events
+        is_duplicate = cal_id and cal_id in existing_cal_ids
+        event["_is_duplicate"] = is_duplicate
+        events.append(event)
+    
+    new_count = len([e for e in events if not e.get("_is_duplicate")])
+    dup_count = len([e for e in events if e.get("_is_duplicate")])
+    
+    return {
+        "total_parsed": len(events),
+        "new_events": new_count,
+        "duplicates": dup_count,
+        "events": events
+    }
+
+@api_router.post("/import/execute")
+async def execute_import(request: Request, user: User = Depends(get_current_user)):
+    """Import events from preview data"""
+    body = await request.json()
+    events = body.get("events", [])
+    skip_duplicates = body.get("skip_duplicates", True)
+    
+    imported = 0
+    skipped = 0
+    
+    for evt_data in events:
+        # Skip duplicates if requested
+        if skip_duplicates and evt_data.get("_is_duplicate"):
+            skipped += 1
+            continue
+        
+        # Remove internal fields
+        evt_data.pop("_is_duplicate", None)
+        
+        # Calculate clear_income if not set
+        if not evt_data.get("clear_income"):
+            evt_data["clear_income"] = evt_data.get("total_offer_price", 0) - evt_data.get("costs", 0)
+        
+        event = Event(
+            user_id=user.user_id,
+            **{k: v for k, v in evt_data.items() if k in Event.model_fields}
+        )
+        await db.events.insert_one(event.model_dump())
+        imported += 1
+    
+    return {"imported": imported, "skipped": skipped}
 
 # ======================== INCOME ROUTES ========================
 

@@ -12,9 +12,10 @@ import { Switch } from "../components/ui/switch";
 import { Separator } from "../components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { useTheme } from "../context/ThemeContext";
-import { Check, Palette, RefreshCw, Bell, Shield } from "lucide-react";
+import { Check, Palette, RefreshCw, Bell, Shield, Upload } from "lucide-react";
+import CsvImportPanel from "./CsvImportPanel";
 
-export const SettingsDialog = ({ open, onOpenChange, autoSync, onAutoSyncChange }) => {
+export const SettingsDialog = ({ open, onOpenChange, autoSync, onAutoSyncChange, onImportComplete }) => {
   const { theme, setTheme, themes } = useTheme();
   const [localAutoSync, setLocalAutoSync] = useState(autoSync);
 
@@ -43,14 +44,18 @@ export const SettingsDialog = ({ open, onOpenChange, autoSync, onAutoSyncChange 
         </DialogHeader>
 
         <Tabs defaultValue="appearance" className="mt-4">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="appearance" className="gap-2">
               <Palette className="w-4 h-4" />
-              Appearance
+              Theme
             </TabsTrigger>
             <TabsTrigger value="sync" className="gap-2">
               <RefreshCw className="w-4 h-4" />
               Sync
+            </TabsTrigger>
+            <TabsTrigger value="import" className="gap-2" data-testid="settings-import-tab">
+              <Upload className="w-4 h-4" />
+              Import
             </TabsTrigger>
           </TabsList>
 
@@ -153,6 +158,21 @@ export const SettingsDialog = ({ open, onOpenChange, autoSync, onAutoSyncChange 
                 </ul>
               </div>
             </div>
+          </TabsContent>
+
+          {/* Import Tab */}
+          <TabsContent value="import" className="space-y-4 mt-4">
+            <div className="space-y-2 mb-4">
+              <h4 className="text-sm font-medium">Import Events from CSV</h4>
+              <p className="text-xs text-muted-foreground">
+                Upload a CSV file exported from PhotoSync or other tools.
+                Duplicate events (same Google Calendar ID) are automatically detected and skipped.
+              </p>
+            </div>
+            <CsvImportPanel onImportComplete={() => {
+              onOpenChange(false);
+              if (onImportComplete) onImportComplete();
+            }} />
           </TabsContent>
         </Tabs>
 
