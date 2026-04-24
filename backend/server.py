@@ -636,7 +636,10 @@ async def get_events(request: Request, user: User = Depends(get_current_user)):
     calendar = request.query_params.get("calendar")
     query = {"user_id": user.user_id}
     if calendar and calendar != "all":
-        query["source_calendar"] = calendar
+        if calendar == "untagged":
+            query["source_calendar"] = None
+        else:
+            query["source_calendar"] = calendar
     events = await db.events.find(query, {"_id": 0}).to_list(500)
     return events
 
@@ -717,7 +720,10 @@ async def clear_events(request: Request, user: User = Depends(get_current_user))
     
     query = {"user_id": user.user_id}
     if calendar_id and calendar_id != "all":
-        query["source_calendar"] = calendar_id
+        if calendar_id == "untagged":
+            query["source_calendar"] = None
+        else:
+            query["source_calendar"] = calendar_id
     
     result = await db.events.delete_many(query)
     return {"deleted": result.deleted_count}

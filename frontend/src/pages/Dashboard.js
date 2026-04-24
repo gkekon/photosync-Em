@@ -37,6 +37,8 @@ import {
   Table2,
   Download,
   FileSpreadsheet,
+  Save,
+  Trash2,
 } from "lucide-react";
 
 import EventsTable from "../components/EventsTable";
@@ -46,6 +48,7 @@ import CalendarDialog from "../components/CalendarDialog";
 import ThemeSwitcher from "../components/ThemeSwitcher";
 import SettingsDialog from "../components/SettingsDialog";
 import AnalyticsPanel from "../components/AnalyticsPanel";
+import CalendarSelector from "../components/CalendarSelector";
 import { apiFetch } from "../utils/api";
 
 export default function Dashboard() {
@@ -64,6 +67,9 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("events");
   const [autoSync, setAutoSync] = useState(() => {
     return localStorage.getItem("autoSync") === "true";
+  });
+  const [selectedCalendar, setSelectedCalendar] = useState(() => {
+    return localStorage.getItem("selectedCalendar") || "all";
   });
 
   // Dialogs/Sheets
@@ -84,11 +90,72 @@ export default function Dashboard() {
     }
   };
 
+  // Handle calendar filter change
+  const handleCalendarChange = (calendarId) => {
+    setSelectedCalendar(calendarId);
+    localStorage.setItem("selectedCalendar", calendarId);
+  };
+
+  // Refetch when calendar changes
+  useEffect(() => {
+    fetchData();
+  }, [selectedCalendar, fetchData]);
+
+  // Create backup
+  const handleBackup = async () => {
+    try {
+      const response = await apiFetch("/api/backup/create", { method: "POST" });
+      if (response.ok) {
+        const result = await response.json();
+        toast.success(`Backup created: ${result.events_count} events, ${result.packages_count} packages`);
+      } else {
+        toast.error("Failed to create backup");
+      }
+    } catch (error) {
+      console.error("Backup error:", error);
+      toast.error("Failed to create backup");
+    }
+  };
+
+  // Clear calendar events
+  const handleClearCalendar = async () => {
+    const calLabel = selectedCalendar === "all" ? "ALL calendars" :
+      selectedCalendar === "untagged" ? "Manually Added" :
+      events.length > 0 ? (events[0]?.source_calendar_name || selectedCalendar) : selectedCalendar;
+    const count = events.length;
+
+    if (!window.confirm(`Are you sure you want to delete ${count} events from "${calLabel}"?\n\nThis action cannot be undone. Consider creating a backup first.`)) {
+      return;
+    }
+
+    try {
+      const response = await apiFetch("/api/events/clear", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          calendar_id: selectedCalendar === "all" ? "all" : selectedCalendar,
+          confirm: true,
+        }),
+      });
+      if (response.ok) {
+        const result = await response.json();
+        toast.success(`Deleted ${result.deleted} events`);
+        fetchData();
+      } else {
+        toast.error("Failed to clear events");
+      }
+    } catch (error) {
+      console.error("Clear error:", error);
+      toast.error("Failed to clear events");
+    }
+  };
+
   // Fetch all data
   const fetchData = useCallback(async () => {
     try {
+      const calParam = selectedCalendar && selectedCalendar !== "all" ? `?calendar=${selectedCalendar}` : "";
       const [eventsRes, packagesRes, summaryRes, calStatusRes] = await Promise.all([
-        apiFetch("/api/events"),
+        apiFetch(`/api/events${calParam}`),
         apiFetch("/api/packages"),
         apiFetch("/api/income/summary"),
         apiFetch("/api/calendar/status"),
@@ -104,7 +171,7 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedCalendar]);
 
   useEffect(() => {
     // Check for calendar connection status from URL
@@ -377,6 +444,11 @@ export default function Dashboard() {
 
           {/* Desktop Nav */}
           <div className="hidden md:flex items-center gap-3">
+            <CalendarSelector
+              selectedCalendar={selectedCalendar}
+              onCalendarChange={handleCalendarChange}
+            />
+
             <Button
               data-testid="sync-calendar-btn"
               variant="outline"
@@ -386,7 +458,7 @@ export default function Dashboard() {
               className="gap-2"
             >
               <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-              {calendarStatus.connected ? "Sync Calendar" : "Connect Calendar"}
+              {calendarStatus.connected ? "Sync" : "Connect"}
             </Button>
 
             <Button
@@ -449,6 +521,15 @@ export default function Dashboard() {
                   Export Summary (CSV)
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleBackup} data-testid="backup-btn">
+                  <Save className="w-4 h-4 mr-2" />
+                  Create Backup
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleClearCalendar} className="text-yellow-500" data-testid="clear-calendar-btn">
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Clear {selectedCalendar === "all" ? "All Events" : "This Calendar"}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={logout} className="text-destructive">
                   <LogOut className="w-4 h-4 mr-2" />
                   Sign Out
@@ -482,6 +563,10 @@ export default function Dashboard() {
                 <p className="text-xs text-muted-foreground">{user?.email}</p>
               </div>
             </div>
+            <CalendarSelector
+              selectedCalendar={selectedCalendar}
+              onCalendarChange={handleCalendarChange}
+            />
             <Button variant="outline" className="w-full justify-start gap-2" onClick={syncCalendar}>
               <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
               {calendarStatus.connected ? "Sync Calendar" : "Connect Calendar"}
@@ -489,6 +574,10 @@ export default function Dashboard() {
             <Button className="w-full justify-start gap-2" onClick={handleCreateEvent}>
               <Plus className="w-4 h-4" />
               Add Event
+            </Button>
+            <Button variant="outline" className="w-full justify-start gap-2" onClick={handleBackup}>
+              <Save className="w-4 h-4" />
+              Create Backup
             </Button>
             <Button variant="outline" className="w-full justify-start gap-2" onClick={handleCreatePackage}>
               <Package className="w-4 h-4" />
