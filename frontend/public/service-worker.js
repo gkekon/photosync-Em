@@ -1,11 +1,11 @@
-const CACHE_NAME = 'photosync-v1';
+const CACHE_NAME = 'photosync-v2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json'
 ];
 
-// Install event - cache static assets
+// Install event - cache static assets and force activate
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
@@ -15,7 +15,7 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// Activate event - clean up old caches
+// Activate event - clean up ALL old caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
@@ -29,27 +29,25 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch event - network first, fallback to cache
+// Fetch event - network first, only cache same-origin GET requests
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
   // Skip non-GET requests
-  if (request.method !== 'GET') {
-    return;
-  }
+  if (request.method !== 'GET') return;
 
-  // Skip API requests - always fetch from network
-  if (url.pathname.startsWith('/api')) {
-    return;
-  }
+  // Skip cross-origin requests entirely (API calls, analytics, fonts, etc.)
+  if (url.origin !== self.location.origin) return;
 
-  // For navigation requests, try network first
+  // Skip API requests
+  if (url.pathname.startsWith('/api')) return;
+
+  // For navigation requests, always network first
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          // Cache the response
           const responseClone = response.clone();
           caches.open(CACHE_NAME).then((cache) => {
             cache.put(request, responseClone);
@@ -57,7 +55,6 @@ self.addEventListener('fetch', (event) => {
           return response;
         })
         .catch(() => {
-          // Fallback to cache
           return caches.match(request).then((response) => {
             return response || caches.match('/');
           });
@@ -66,29 +63,19 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // For other requests, try cache first, then network
+  // For same-origin static assets, network first with cache fallback
   event.respondWith(
-    caches.match(request).then((cachedResponse) => {
-      if (cachedResponse) {
-        // Return cached response and update cache in background
-        fetch(request).then((response) => {
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(request, response);
-          });
-        });
-        return cachedResponse;
-      }
-
-      // Not in cache, fetch from network
-      return fetch(request).then((response) => {
-        // Cache the response
+    fetch(request)
+      .then((response) => {
         const responseClone = response.clone();
         caches.open(CACHE_NAME).then((cache) => {
           cache.put(request, responseClone);
         });
         return response;
-      });
-    })
+      })
+      .catch(() => {
+        return caches.match(request);
+      })
   );
 });
 
@@ -100,7 +87,6 @@ self.addEventListener('sync', (event) => {
 });
 
 async function syncEvents() {
-  // Background sync logic - will sync when back online
   console.log('Background sync triggered');
 }
 
