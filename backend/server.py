@@ -1032,10 +1032,18 @@ async def debug_sessions():
 # Include router and middleware
 app.include_router(api_router)
 
+# Build allowed origins from FRONTEND_URL
+_allowed_origins = [FRONTEND_URL]
+# Also allow the preview/local URLs
+if "preview.emergentagent.com" not in FRONTEND_URL:
+    _allowed_origins.append("https://photo-sync-dashboard.preview.emergentagent.com")
+if BACKEND_URL_ENV:
+    _allowed_origins.append(BACKEND_URL_ENV)
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
