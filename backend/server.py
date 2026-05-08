@@ -558,14 +558,21 @@ async def get_google_creds(user: User) -> Credentials:
         client_secret=GOOGLE_CLIENT_SECRET
     )
     
-    # Always try to refresh if we have a refresh token
+    # Google token responses store `expires_in`, not an absolute expiry. Older
+    # saved tokens may therefore look valid locally while Google rejects them.
+    # Refresh before Calendar API calls so long-lived connections keep working.
     try:
-        if creds.expired or not creds.valid:
-            creds.refresh(GoogleRequest())
-            await db.users.update_one(
-                {"user_id": user.user_id},
-                {"$set": {"google_calendar_tokens.access_token": creds.token}}
-            )
+        creds.refresh(GoogleRequest())
+        refreshed_tokens = {
+            **tokens,
+            "access_token": creds.token,
+            "token": creds.token,
+            "expiry": creds.expiry.isoformat() if creds.expiry else None,
+        }
+        await db.users.update_one(
+            {"user_id": user.user_id},
+            {"$set": {"google_calendar_tokens": refreshed_tokens}}
+        )
     except Exception as e:
         logger.error(f"Token refresh failed: {e}")
         # Clear invalid tokens so user can reconnect

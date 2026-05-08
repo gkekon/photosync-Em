@@ -233,7 +233,8 @@ export default function Dashboard() {
         toast.success(result.message);
         fetchData();
       } else {
-        toast.error("Failed to sync calendar");
+        const error = await response.json().catch(() => null);
+        toast.error(error?.detail || "Failed to sync calendar");
       }
     } catch (error) {
       console.error("Sync error:", error);
