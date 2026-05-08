@@ -192,10 +192,11 @@ def get_backend_url(request: Request) -> str:
     return str(request.base_url).rstrip('/')
 
 @api_router.get("/auth/google/login")
-async def auth_google_login(request: Request):
+async def auth_google_login(request: Request, remember: bool = True):
     """Redirect to Google OAuth consent screen for login"""
     backend_url = get_backend_url(request)
     redirect_uri = f"{backend_url}/api/auth/google/callback"
+    state = "remember" if remember else "session"
 
     scopes = "openid email profile"
     auth_url = (
@@ -205,12 +206,13 @@ async def auth_google_login(request: Request):
         f"response_type=code&"
         f"scope={scopes}&"
         f"access_type=offline&"
-        f"prompt=select_account"
+        f"prompt=select_account&"
+        f"state={state}"
     )
     return RedirectResponse(url=auth_url)
 
 @api_router.get("/auth/google/callback")
-async def auth_google_callback(request: Request, code: str = None, error: str = None):
+async def auth_google_callback(request: Request, code: str = None, error: str = None, state: str = "remember"):
     """Handle Google OAuth callback for login"""
     if error:
         logger.error(f"Google OAuth error: {error}")
@@ -280,13 +282,16 @@ async def auth_google_callback(request: Request, code: str = None, error: str = 
 
         # Create session
         session_token = f"st_{uuid.uuid4().hex}"
-        expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+        remember_login = state != "session"
+        session_days = 90 if remember_login else 7
+        expires_at = datetime.now(timezone.utc) + timedelta(days=session_days)
 
         await db.user_sessions.delete_many({"user_id": user_id})
         await db.user_sessions.insert_one({
             "user_id": user_id,
             "session_token": session_token,
             "expires_at": expires_at.isoformat(),
+            "remember": remember_login,
             "created_at": datetime.now(timezone.utc).isoformat()
         })
 
@@ -300,7 +305,7 @@ async def auth_google_callback(request: Request, code: str = None, error: str = 
             secure=True,
             samesite="none",
             path="/",
-            max_age=7*24*60*60
+            max_age=session_days*24*60*60
         )
 
         return redirect_response
@@ -479,6 +484,7 @@ async def sync_calendar_events(user: User = Depends(get_current_user)):
     google_events = events_result.get('items', [])
     synced_count = 0
     updated_count = 0
+    new_event_ids = []
     
     for ge in google_events:
         existing = await db.events.find_one({
@@ -504,6 +510,7 @@ async def sync_calendar_events(user: User = Depends(get_current_user)):
                     status="unbooked"
                 )
                 await db.events.insert_one(new_event.model_dump())
+                new_event_ids.append(new_event.event_id)
                 synced_count += 1
         else:
             # Tag source calendar if missing
@@ -541,7 +548,12 @@ async def sync_calendar_events(user: User = Depends(get_current_user)):
                 )
                 updated_count += 1
     
-    return {"message": f"Synced {synced_count} new events, updated {updated_count} existing events"}
+    return {
+        "message": f"Synced {synced_count} new events, updated {updated_count} existing events",
+        "synced_count": synced_count,
+        "updated_count": updated_count,
+        "new_event_ids": new_event_ids,
+    }
 
 async def get_google_creds(user: User) -> Credentials:
     """Get or refresh Google credentials"""

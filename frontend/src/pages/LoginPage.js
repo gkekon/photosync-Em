@@ -1,11 +1,14 @@
+import { useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import { Button } from "../components/ui/button";
+import { Checkbox } from "../components/ui/checkbox";
 import { Camera } from "lucide-react";
 
 export default function LoginPage() {
   const { login } = useAuth();
   const { currentTheme } = useTheme();
+  const [remember, setRemember] = useState(() => localStorage.getItem("photosync_remember_login") !== "false");
 
   return (
     <div className="min-h-screen gradient-bg flex">
@@ -56,7 +59,7 @@ export default function LoginPage() {
           {/* Google Sign In Button */}
           <Button
             data-testid="google-login-btn"
-            onClick={login}
+            onClick={() => login(remember)}
             className="w-full h-12 rounded-xl font-medium gap-3 hover:scale-[1.02] active:scale-[0.98] transition-transform"
             style={{ backgroundColor: '#ffffff', color: '#1f2937' }}
           >
@@ -80,6 +83,15 @@ export default function LoginPage() {
             </svg>
             Continue with Google
           </Button>
+
+          <label className="mt-4 flex items-center gap-3 text-sm text-muted-foreground cursor-pointer select-none">
+            <Checkbox
+              checked={remember}
+              onCheckedChange={(checked) => setRemember(Boolean(checked))}
+              data-testid="remember-login-checkbox"
+            />
+            <span>Remember me on this browser</span>
+          </label>
 
           {/* Footer */}
           <p className="text-center text-xs text-muted-foreground mt-8">

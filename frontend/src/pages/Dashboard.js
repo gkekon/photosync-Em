@@ -63,6 +63,7 @@ export default function Dashboard() {
   const [calendarStatus, setCalendarStatus] = useState({ connected: false });
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [highlightedEventIds, setHighlightedEventIds] = useState([]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("events");
   const [autoSync, setAutoSync] = useState(() => {
@@ -158,6 +159,8 @@ export default function Dashboard() {
         method: "POST",
       });
       if (response.ok) {
+        const result = await response.json();
+        setHighlightedEventIds(result.new_event_ids || []);
         fetchData();
       }
     } catch (error) {
@@ -230,6 +233,7 @@ export default function Dashboard() {
 
       if (response.ok) {
         const result = await response.json();
+        setHighlightedEventIds(result.new_event_ids || []);
         toast.success(result.message);
         fetchData();
       } else {
@@ -742,6 +746,7 @@ export default function Dashboard() {
                     onEdit={handleEditEvent}
                     formatCurrency={formatCurrency}
                     onRefresh={fetchData}
+                    highlightedEventIds={highlightedEventIds}
                   />
                 </ScrollArea>
               </CardContent>

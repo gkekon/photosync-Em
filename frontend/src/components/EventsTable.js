@@ -26,9 +26,10 @@ const SortableHeader = ({ label, sortKey, currentSort, onSort, className = "", c
   );
 };
 
-export const EventsTable = ({ events, packages, onEdit, formatCurrency, onRefresh }) => {
+export const EventsTable = ({ events, packages, onEdit, formatCurrency, onRefresh, highlightedEventIds = [] }) => {
   const { currentTheme } = useTheme();
   const [sort, setSort] = useState({ key: "date", dir: "asc" });
+  const highlightedIds = new Set(highlightedEventIds);
 
   const handleSort = (key) => {
     setSort((prev) => ({
@@ -119,13 +120,18 @@ export const EventsTable = ({ events, packages, onEdit, formatCurrency, onRefres
           </TableRow>
         </TableHeader>
         <TableBody>
-          {sortedEvents.map((event, index) => (
-            <TableRow
-              key={event.event_id}
-              className="cursor-pointer border-border hover:bg-accent/50 transition-colors"
-              data-testid={`event-row-${event.event_id}`}
-              style={{ animationDelay: `${index * 30}ms` }}
-            >
+          {sortedEvents.map((event, index) => {
+            const isNew = highlightedIds.has(event.event_id);
+
+            return (
+              <TableRow
+                key={event.event_id}
+                className={`cursor-pointer border-border transition-colors ${
+                  isNew ? "bg-primary/10 ring-1 ring-inset ring-primary/40 hover:bg-primary/15" : "hover:bg-accent/50"
+                }`}
+                data-testid={`event-row-${event.event_id}`}
+                style={{ animationDelay: `${index * 30}ms` }}
+              >
               <TableCell 
                 className="font-mono text-xs text-muted-foreground whitespace-nowrap"
                 onClick={() => onEdit(event)}
@@ -136,7 +142,14 @@ export const EventsTable = ({ events, packages, onEdit, formatCurrency, onRefres
                 className="font-medium text-foreground max-w-[200px] truncate"
                 onClick={() => onEdit(event)}
               >
-                {event.name}
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="truncate">{event.name}</span>
+                  {isNew && (
+                    <Badge className="shrink-0 bg-primary/20 text-primary border-primary/40 text-xs">
+                      New
+                    </Badge>
+                  )}
+                </span>
               </TableCell>
               <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
                 <Checkbox
@@ -187,8 +200,9 @@ export const EventsTable = ({ events, packages, onEdit, formatCurrency, onRefres
                   {event.status}
                 </Badge>
               </TableCell>
-            </TableRow>
-          ))}
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
     </div>

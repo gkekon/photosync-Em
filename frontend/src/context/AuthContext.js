@@ -52,8 +52,9 @@ export const AuthProvider = ({ children }) => {
     }
   }, []);
 
-  const login = () => {
-    window.location.href = `${BACKEND_URL}/api/auth/google/login`;
+  const login = (remember = true) => {
+    localStorage.setItem("photosync_remember_login", remember ? "true" : "false");
+    window.location.href = `${BACKEND_URL}/api/auth/google/login?remember=${remember ? "true" : "false"}`;
   };
 
   const logout = async () => {
