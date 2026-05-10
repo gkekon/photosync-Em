@@ -11,6 +11,7 @@ import { Label } from "../components/ui/label";
 import { Switch } from "../components/ui/switch";
 import { Separator } from "../components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { useTheme } from "../context/ThemeContext";
 import { apiFetch } from "../utils/api";
 import { toast } from "sonner";
@@ -21,10 +22,33 @@ export const SettingsDialog = ({ open, onOpenChange, autoSync, onAutoSyncChange,
   const { theme, setTheme, themes } = useTheme();
   const [localAutoSync, setLocalAutoSync] = useState(autoSync);
   const [notionSyncing, setNotionSyncing] = useState(false);
+  const [calendarSources, setCalendarSources] = useState([]);
+  const [untaggedCount, setUntaggedCount] = useState(0);
+  const [notionCalendarId, setNotionCalendarId] = useState(() => localStorage.getItem("selectedCalendar") || "all");
+  const [notionReplaceExisting, setNotionReplaceExisting] = useState(true);
 
   useEffect(() => {
     setLocalAutoSync(autoSync);
   }, [autoSync]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const fetchCalendarSources = async () => {
+      try {
+        const response = await apiFetch("/api/events/sources");
+        const result = await response.json().catch(() => null);
+        if (response.ok) {
+          setCalendarSources(result?.sources || []);
+          setUntaggedCount(result?.untagged_count || 0);
+        }
+      } catch (error) {
+        console.error("Failed to load calendar sources:", error);
+      }
+    };
+
+    fetchCalendarSources();
+  }, [open]);
 
   const handleAutoSyncChange = (checked) => {
     setLocalAutoSync(checked);
@@ -34,7 +58,14 @@ export const SettingsDialog = ({ open, onOpenChange, autoSync, onAutoSyncChange,
   const handleNotionSync = async () => {
     setNotionSyncing(true);
     try {
-      const response = await apiFetch("/api/notion/sync", { method: "POST" });
+      const response = await apiFetch("/api/notion/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          calendar_id: notionCalendarId,
+          replace_existing: notionReplaceExisting,
+        }),
+      });
       const result = await response.json().catch(() => null);
       if (response.ok) {
         toast.success(result?.message || "Pushed events to Notion");
@@ -169,25 +200,59 @@ export const SettingsDialog = ({ open, onOpenChange, autoSync, onAutoSyncChange,
 
               <Separator />
 
-              <div className="flex items-center justify-between p-4 rounded-lg bg-muted/50">
+              <div className="space-y-3 p-4 rounded-lg bg-muted/50">
                 <div className="space-y-1">
                   <Label className="font-medium">Push to Notion</Label>
                   <p className="text-xs text-muted-foreground">
-                    Send all current PhotoSync events to the Notion bookings table
+                    Choose which calendar to send to the Notion bookings table
                   </p>
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  onClick={handleNotionSync}
-                  disabled={notionSyncing}
-                  data-testid="notion-sync-btn"
-                >
-                  <RefreshCw className={`w-4 h-4 ${notionSyncing ? 'animate-spin' : ''}`} />
-                  Push
-                </Button>
+                <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+                  <Select value={notionCalendarId} onValueChange={setNotionCalendarId}>
+                    <SelectTrigger data-testid="notion-calendar-select">
+                      <SelectValue placeholder="Choose calendar" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All calendars</SelectItem>
+                      {calendarSources.map((source) => (
+                        <SelectItem key={source.id} value={source.id}>
+                          {source.name} ({source.count})
+                        </SelectItem>
+                      ))}
+                      {untaggedCount > 0 && (
+                        <SelectItem value="untagged">Untagged events ({untaggedCount})</SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    onClick={handleNotionSync}
+                    disabled={notionSyncing}
+                    data-testid="notion-sync-btn"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${notionSyncing ? 'animate-spin' : ''}`} />
+                    Push
+                  </Button>
+                </div>
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 p-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="notion-replace-existing" className="text-xs font-medium">
+                      Show only this selection in Notion
+                    </Label>
+                    <p className="text-[11px] text-muted-foreground">
+                      Hides rows from other calendars; PhotoSync data stays untouched
+                    </p>
+                  </div>
+                  <Switch
+                    id="notion-replace-existing"
+                    checked={notionReplaceExisting}
+                    onCheckedChange={setNotionReplaceExisting}
+                    data-testid="notion-replace-switch"
+                  />
+                </div>
               </div>
 
               <Separator />

@@ -1443,14 +1443,37 @@ async def notion_status_endpoint(user: User = Depends(get_current_user)):
     }
 
 @api_router.post("/notion/sync")
-async def sync_all_events_to_notion(user: User = Depends(get_current_user)):
-    """Push all current PhotoSync events to Notion."""
+async def sync_all_events_to_notion(request: Request, user: User = Depends(get_current_user)):
+    """Push selected PhotoSync events to Notion."""
     if not notion_configured():
         raise HTTPException(status_code=400, detail="Notion sync is not configured")
 
-    events = await db.events.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    calendar_id = body.get("calendar_id") or "all"
+    replace_existing = bool(body.get("replace_existing"))
+    query = {"user_id": user.user_id}
+    calendar_label = "all calendars"
+
+    if calendar_id and calendar_id != "all":
+        if calendar_id == "untagged":
+            query["source_calendar"] = None
+            calendar_label = "untagged events"
+        else:
+            query["source_calendar"] = calendar_id
+            source = await db.events.find_one(
+                {"user_id": user.user_id, "source_calendar": calendar_id},
+                {"_id": 0, "source_calendar_name": 1}
+            )
+            calendar_label = (source or {}).get("source_calendar_name") or "selected calendar"
+
+    events = await db.events.find(query, {"_id": 0}).to_list(1000)
     synced = 0
     failed = 0
+    archived = 0
 
     for event in events:
         try:
@@ -1460,10 +1483,32 @@ async def sync_all_events_to_notion(user: User = Depends(get_current_user)):
             failed += 1
             logger.error(f"Manual Notion sync failed for {event.get('event_id')}: {e}")
 
+    if replace_existing and calendar_id != "all":
+        archive_query = {"user_id": user.user_id}
+        if calendar_id == "untagged":
+            archive_query["source_calendar"] = {"$exists": True, "$ne": None}
+        else:
+            archive_query["source_calendar"] = {"$ne": calendar_id}
+
+        events_to_archive = await db.events.find(archive_query, {"_id": 0}).to_list(1000)
+        for event in events_to_archive:
+            try:
+                await archive_event_in_notion(event)
+                archived += 1
+            except Exception as e:
+                failed += 1
+                logger.error(f"Manual Notion archive failed for {event.get('event_id')}: {e}")
+
     return {
-        "message": f"Pushed {synced} events to Notion" + (f", {failed} failed" if failed else ""),
+        "message": (
+            f"Pushed {synced} events from {calendar_label} to Notion"
+            + (f", hid {archived} other events" if archived else "")
+            + (f", {failed} failed" if failed else "")
+        ),
         "synced": synced,
         "failed": failed,
+        "archived": archived,
+        "calendar_id": calendar_id,
     }
 
 # ======================== HEALTH CHECK ========================
