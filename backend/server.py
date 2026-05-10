@@ -31,6 +31,9 @@ GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET')
 # FRONTEND_URL can be set in .env for production, defaults to preview URL
 FRONTEND_URL = os.environ.get('FRONTEND_URL', os.environ.get('REACT_APP_BACKEND_URL', 'https://photo-sync-dashboard.preview.emergentagent.com').replace('/api', '').rstrip('/'))
 BACKEND_URL_ENV = os.environ.get('BACKEND_URL', '').strip().strip('=')
+NOTION_TOKEN = os.environ.get('NOTION_TOKEN')
+NOTION_EVENTS_DATABASE_ID = os.environ.get('NOTION_EVENTS_DATABASE_ID', '54f3f7faeccd44f3950fd19bedcc3c65')
+NOTION_VERSION = os.environ.get('NOTION_VERSION', '2022-06-28')
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -101,6 +104,9 @@ class Event(BaseModel):
     deposit_amount: float = 0
     attached_offers: Optional[str] = None
     location: Optional[str] = None
+    second_photographer: Optional[str] = None
+    videographer: Optional[str] = None
+    delivered: bool = False
     total_offer_price: float = 0
     photo_offer_price: float = 0
     video_offer_price: float = 0
@@ -122,6 +128,9 @@ class EventCreate(BaseModel):
     deposit_amount: float = 0
     attached_offers: Optional[str] = None
     location: Optional[str] = None
+    second_photographer: Optional[str] = None
+    videographer: Optional[str] = None
+    delivered: bool = False
     total_offer_price: float = 0
     photo_offer_price: float = 0
     video_offer_price: float = 0
@@ -139,6 +148,9 @@ class EventUpdate(BaseModel):
     deposit_amount: Optional[float] = None
     attached_offers: Optional[str] = None
     location: Optional[str] = None
+    second_photographer: Optional[str] = None
+    videographer: Optional[str] = None
+    delivered: Optional[bool] = None
     total_offer_price: Optional[float] = None
     photo_offer_price: Optional[float] = None
     video_offer_price: Optional[float] = None
@@ -510,15 +522,20 @@ async def sync_calendar_events(user: User = Depends(get_current_user)):
                     status="unbooked"
                 )
                 await db.events.insert_one(new_event.model_dump())
+                await sync_event_to_notion_safe(new_event.model_dump())
                 new_event_ids.append(new_event.event_id)
                 synced_count += 1
         else:
             # Tag source calendar if missing
+            source_updated = False
             if not existing.get("source_calendar"):
                 await db.events.update_one(
                     {"event_id": existing["event_id"]},
                     {"$set": {"source_calendar": calendar_id, "source_calendar_name": calendar_name}}
                 )
+                existing["source_calendar"] = calendar_id
+                existing["source_calendar_name"] = calendar_name
+                source_updated = True
             
             # Existing event - check for changes in Google Calendar
             start = ge.get("start", {}).get("dateTime") or ge.get("start", {}).get("date")
@@ -546,7 +563,10 @@ async def sync_calendar_events(user: User = Depends(get_current_user)):
                     {"event_id": existing["event_id"]},
                     {"$set": updates}
                 )
+                await sync_event_to_notion_safe({**existing, **updates})
                 updated_count += 1
+            elif source_updated:
+                await sync_event_to_notion_safe(existing)
     
     return {
         "message": f"Synced {synced_count} new events, updated {updated_count} existing events",
@@ -595,6 +615,143 @@ async def get_google_creds(user: User) -> Credentials:
         raise HTTPException(status_code=400, detail="Google Calendar session expired. Please reconnect your calendar.")
     
     return creds
+
+# ======================== NOTION SYNC HELPERS ========================
+
+def notion_configured() -> bool:
+    return bool(NOTION_TOKEN and NOTION_EVENTS_DATABASE_ID)
+
+def notion_text(value, limit: int = 2000) -> list:
+    text = "" if value is None else str(value)
+    return [{"type": "text", "text": {"content": text[:limit]}}] if text else []
+
+def notion_number(value) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+def notion_status(status: Optional[str]) -> str:
+    return {
+        "unbooked": "Unbooked",
+        "booked": "Booked",
+        "completed": "Completed",
+    }.get((status or "unbooked").lower(), "Unbooked")
+
+def notion_event_properties(event: dict) -> dict:
+    source_calendar = event.get("source_calendar_name") or event.get("source_calendar")
+    now = datetime.now(timezone.utc).isoformat()
+
+    properties = {
+        "Event": {"title": notion_text(event.get("name") or "Untitled event")},
+        "Status": {"select": {"name": notion_status(event.get("status"))}},
+        "Delivered": {"checkbox": bool(event.get("delivered"))},
+        "Second Phtgr.": {"rich_text": notion_text(event.get("second_photographer"))},
+        "Videographer": {"rich_text": notion_text(event.get("videographer"))},
+        "Video": {"checkbox": bool(event.get("has_video"))},
+        "Package": {"rich_text": notion_text(event.get("package_name") or event.get("package_id"))},
+        "Location": {"rich_text": notion_text(event.get("location"))},
+        "Deposit": {"checkbox": bool(event.get("deposit"))},
+        "Deposit Amount": {"number": notion_number(event.get("deposit_amount"))},
+        "Photo Price": {"number": notion_number(event.get("photo_offer_price"))},
+        "Video Price": {"number": notion_number(event.get("video_offer_price"))},
+        "Offer Price": {"number": notion_number(event.get("total_offer_price"))},
+        "Costs": {"number": notion_number(event.get("costs"))},
+        "Income": {"number": notion_number(event.get("clear_income"))},
+        "Attached Offers": {"rich_text": notion_text(event.get("attached_offers"))},
+        "Info": {"rich_text": notion_text(event.get("info"))},
+        "Source Calendar": {"rich_text": notion_text(source_calendar)},
+        "Google Event ID": {"rich_text": notion_text(event.get("google_calendar_event_id"))},
+        "PhotoSync Event ID": {"rich_text": notion_text(event.get("event_id"))},
+        "Last Synced": {"date": {"start": now}},
+    }
+
+    if event.get("date"):
+        properties["Date"] = {"date": {"start": event["date"]}}
+    else:
+        properties["Date"] = {"date": None}
+
+    return properties
+
+async def notion_request(method: str, path: str, payload: Optional[dict] = None) -> dict:
+    if not notion_configured():
+        raise HTTPException(status_code=400, detail="Notion sync is not configured")
+
+    headers = {
+        "Authorization": f"Bearer {NOTION_TOKEN}",
+        "Notion-Version": NOTION_VERSION,
+        "Content-Type": "application/json",
+    }
+    async with httpx.AsyncClient(timeout=30) as http_client:
+        response = await http_client.request(
+            method,
+            f"https://api.notion.com/v1{path}",
+            headers=headers,
+            json=payload,
+        )
+
+    if response.status_code >= 400:
+        logger.error(f"Notion API error {response.status_code}: {response.text}")
+        raise HTTPException(status_code=502, detail="Notion sync failed")
+
+    return response.json() if response.content else {}
+
+async def find_notion_event_page(event_id: Optional[str]) -> Optional[str]:
+    if not event_id:
+        return None
+
+    result = await notion_request(
+        "POST",
+        f"/databases/{NOTION_EVENTS_DATABASE_ID}/query",
+        {
+            "filter": {
+                "property": "PhotoSync Event ID",
+                "rich_text": {"equals": event_id},
+            },
+            "page_size": 1,
+        },
+    )
+    pages = result.get("results", [])
+    return pages[0]["id"] if pages else None
+
+async def sync_event_to_notion(event: dict) -> Optional[str]:
+    """Create or update the Notion mirror for one PhotoSync event."""
+    if not notion_configured():
+        return None
+
+    page_id = await find_notion_event_page(event.get("event_id"))
+    properties = notion_event_properties(event)
+
+    if page_id:
+        await notion_request("PATCH", f"/pages/{page_id}", {"properties": properties, "archived": False})
+        return page_id
+
+    created = await notion_request(
+        "POST",
+        "/pages",
+        {
+            "parent": {"database_id": NOTION_EVENTS_DATABASE_ID},
+            "properties": properties,
+        },
+    )
+    return created.get("id")
+
+async def sync_event_to_notion_safe(event: dict):
+    try:
+        await sync_event_to_notion(event)
+    except Exception as e:
+        logger.error(f"Notion event sync failed for {event.get('event_id')}: {e}")
+
+async def archive_event_in_notion(event: dict):
+    if not notion_configured():
+        return
+
+    try:
+        page_id = await find_notion_event_page(event.get("event_id"))
+        if page_id:
+            await notion_request("PATCH", f"/pages/{page_id}", {"archived": True})
+    except Exception as e:
+        logger.error(f"Notion event archive failed for {event.get('event_id')}: {e}")
 
 # ======================== THEME ROUTES ========================
 
@@ -672,6 +829,7 @@ async def create_event(data: EventCreate, user: User = Depends(get_current_user)
         **data.model_dump()
     )
     await db.events.insert_one(event.model_dump())
+    await sync_event_to_notion_safe(event.model_dump())
     return event
 
 @api_router.put("/events/{event_id}", response_model=Event)
@@ -695,14 +853,18 @@ async def update_event(event_id: str, data: EventUpdate, user: User = Depends(ge
     )
     
     event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
+    await sync_event_to_notion_safe(event)
     return event
 
 @api_router.delete("/events/{event_id}")
 async def delete_event(event_id: str, user: User = Depends(get_current_user)):
     """Delete an event"""
+    event = await db.events.find_one({"event_id": event_id, "user_id": user.user_id}, {"_id": 0})
     result = await db.events.delete_one({"event_id": event_id, "user_id": user.user_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Event not found")
+    if event:
+        await archive_event_in_notion(event)
     return {"message": "Event deleted"}
 
 # ======================== CALENDAR SOURCE & CLEAR ROUTES ========================
@@ -744,7 +906,10 @@ async def clear_events(request: Request, user: User = Depends(get_current_user))
         else:
             query["source_calendar"] = calendar_id
     
+    events_to_archive = await db.events.find(query, {"_id": 0}).to_list(1000) if notion_configured() else []
     result = await db.events.delete_many(query)
+    for event in events_to_archive:
+        await archive_event_in_notion(event)
     return {"deleted": result.deleted_count}
 
 # ======================== BACKUP ROUTES ========================
@@ -1264,6 +1429,41 @@ async def get_analytics_overview(user: User = Depends(get_current_user)):
         },
         "currency": "EUR",
         "year": current_year
+    }
+
+# ======================== NOTION ROUTES ========================
+
+@api_router.get("/notion/status")
+async def notion_status_endpoint(user: User = Depends(get_current_user)):
+    """Check whether one-way Notion sync is configured."""
+    return {
+        "configured": notion_configured(),
+        "database_id": NOTION_EVENTS_DATABASE_ID if notion_configured() else None,
+        "database_url": f"https://www.notion.so/{NOTION_EVENTS_DATABASE_ID.replace('-', '')}" if notion_configured() else None,
+    }
+
+@api_router.post("/notion/sync")
+async def sync_all_events_to_notion(user: User = Depends(get_current_user)):
+    """Push all current PhotoSync events to Notion."""
+    if not notion_configured():
+        raise HTTPException(status_code=400, detail="Notion sync is not configured")
+
+    events = await db.events.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
+    synced = 0
+    failed = 0
+
+    for event in events:
+        try:
+            await sync_event_to_notion(event)
+            synced += 1
+        except Exception as e:
+            failed += 1
+            logger.error(f"Manual Notion sync failed for {event.get('event_id')}: {e}")
+
+    return {
+        "message": f"Pushed {synced} events to Notion" + (f", {failed} failed" if failed else ""),
+        "synced": synced,
+        "failed": failed,
     }
 
 # ======================== HEALTH CHECK ========================

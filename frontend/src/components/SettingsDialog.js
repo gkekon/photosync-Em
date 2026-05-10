@@ -12,12 +12,15 @@ import { Switch } from "../components/ui/switch";
 import { Separator } from "../components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { useTheme } from "../context/ThemeContext";
+import { apiFetch } from "../utils/api";
+import { toast } from "sonner";
 import { Check, Palette, RefreshCw, Bell, Shield, Upload } from "lucide-react";
 import CsvImportPanel from "./CsvImportPanel";
 
 export const SettingsDialog = ({ open, onOpenChange, autoSync, onAutoSyncChange, onImportComplete }) => {
   const { theme, setTheme, themes } = useTheme();
   const [localAutoSync, setLocalAutoSync] = useState(autoSync);
+  const [notionSyncing, setNotionSyncing] = useState(false);
 
   useEffect(() => {
     setLocalAutoSync(autoSync);
@@ -26,6 +29,24 @@ export const SettingsDialog = ({ open, onOpenChange, autoSync, onAutoSyncChange,
   const handleAutoSyncChange = (checked) => {
     setLocalAutoSync(checked);
     onAutoSyncChange(checked);
+  };
+
+  const handleNotionSync = async () => {
+    setNotionSyncing(true);
+    try {
+      const response = await apiFetch("/api/notion/sync", { method: "POST" });
+      const result = await response.json().catch(() => null);
+      if (response.ok) {
+        toast.success(result?.message || "Pushed events to Notion");
+      } else {
+        toast.error(result?.detail || "Failed to push to Notion");
+      }
+    } catch (error) {
+      console.error("Notion sync error:", error);
+      toast.error("Failed to push to Notion");
+    } finally {
+      setNotionSyncing(false);
+    }
   };
 
   const darkThemes = themes.filter((t) => t.isDark);
@@ -144,6 +165,29 @@ export const SettingsDialog = ({ open, onOpenChange, autoSync, onAutoSyncChange,
                   onCheckedChange={handleAutoSyncChange}
                   data-testid="auto-sync-switch"
                 />
+              </div>
+
+              <Separator />
+
+              <div className="flex items-center justify-between p-4 rounded-lg bg-muted/50">
+                <div className="space-y-1">
+                  <Label className="font-medium">Push to Notion</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Send all current PhotoSync events to the Notion bookings table
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={handleNotionSync}
+                  disabled={notionSyncing}
+                  data-testid="notion-sync-btn"
+                >
+                  <RefreshCw className={`w-4 h-4 ${notionSyncing ? 'animate-spin' : ''}`} />
+                  Push
+                </Button>
               </div>
 
               <Separator />

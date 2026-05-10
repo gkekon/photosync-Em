@@ -28,6 +28,9 @@ export const EventSheet = ({ open, onOpenChange, event, packages, onSave, onDele
     deposit_amount: 0,
     attached_offers: "",
     location: "",
+    second_photographer: "",
+    videographer: "",
+    delivered: false,
     total_offer_price: 0,
     photo_offer_price: 0,
     video_offer_price: 0,
@@ -51,6 +54,9 @@ export const EventSheet = ({ open, onOpenChange, event, packages, onSave, onDele
         deposit_amount: event.deposit_amount || 0,
         attached_offers: event.attached_offers || "",
         location: event.location || "",
+        second_photographer: event.second_photographer || "",
+        videographer: event.videographer || "",
+        delivered: event.delivered || false,
         total_offer_price: event.total_offer_price || 0,
         photo_offer_price: event.photo_offer_price || 0,
         video_offer_price: event.video_offer_price || 0,
@@ -70,6 +76,9 @@ export const EventSheet = ({ open, onOpenChange, event, packages, onSave, onDele
         deposit_amount: 0,
         attached_offers: "",
         location: "",
+        second_photographer: "",
+        videographer: "",
+        delivered: false,
         total_offer_price: 0,
         photo_offer_price: 0,
         video_offer_price: 0,
@@ -240,6 +249,44 @@ export const EventSheet = ({ open, onOpenChange, event, packages, onSave, onDele
               rows={2}
               data-testid="event-info-textarea"
             />
+          </div>
+
+          <Separator />
+
+          {/* Team & Delivery */}
+          <div className="space-y-4">
+            <Label className="text-base font-semibold">Team & Delivery</Label>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="second_photographer" className="text-sm text-muted-foreground">Second Phtgr.</Label>
+                <Input
+                  id="second_photographer"
+                  value={formData.second_photographer}
+                  onChange={(e) => handleChange("second_photographer", e.target.value)}
+                  placeholder="Name"
+                  data-testid="event-second-photographer-input"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="videographer" className="text-sm text-muted-foreground">Videographer</Label>
+                <Input
+                  id="videographer"
+                  value={formData.videographer}
+                  onChange={(e) => handleChange("videographer", e.target.value)}
+                  placeholder="Name"
+                  data-testid="event-videographer-input"
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-between p-3 rounded-md border border-input bg-background">
+              <Label htmlFor="delivered" className="text-sm cursor-pointer">Delivered</Label>
+              <Switch
+                id="delivered"
+                checked={formData.delivered}
+                onCheckedChange={(checked) => handleChange("delivered", checked)}
+                data-testid="event-delivered-switch"
+              />
+            </div>
           </div>
 
           <Separator />
