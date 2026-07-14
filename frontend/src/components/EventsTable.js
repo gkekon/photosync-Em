@@ -1,8 +1,27 @@
 import { useState } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { Badge } from "../components/ui/badge";
+import { Button } from "../components/ui/button";
 import { Checkbox } from "../components/ui/checkbox";
-import { Check, X, MapPin, Video, ArrowUp, ArrowDown, ArrowUpDown, Clock, CreditCard, Users } from "lucide-react";
+import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../components/ui/dropdown-menu";
+import { Check, X, MapPin, Video, ArrowUp, ArrowDown, ArrowUpDown, Clock, CreditCard, Users, ChevronDown, CalendarClock } from "lucide-react";
 import { apiFetch } from "../utils/api";
 import {
   PAYMENT_META,
@@ -11,6 +30,7 @@ import {
   getEventPriority,
   getPaymentStatus,
   getPriorityMeta,
+  PRIORITY_META,
   sortByDeliveryPriority,
 } from "../utils/delivery";
 
@@ -36,6 +56,7 @@ const SortableHeader = ({ label, sortKey, currentSort, onSort, className = "", c
 
 export const EventsTable = ({ events, packages, onEdit, formatCurrency, onRefresh, highlightedEventIds = [] }) => {
   const [sort, setSort] = useState({ key: "date", dir: "asc" });
+  const [deadlineDialog, setDeadlineDialog] = useState({ open: false, event: null, value: "" });
   const highlightedIds = new Set(highlightedEventIds);
 
   const handleSort = (key) => {
@@ -143,6 +164,67 @@ export const EventsTable = ({ events, packages, onEdit, formatCurrency, onRefres
     }
   };
 
+  const handlePriorityChange = async (event, priority) => {
+    try {
+      await apiFetch(`/api/events/${event.event_id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ delivery_priority: priority }),
+      });
+      if (onRefresh) onRefresh();
+    } catch (error) {
+      console.error("Error updating delivery priority:", error);
+    }
+  };
+
+  const openDeadlineDialog = (event) => {
+    setDeadlineDialog({
+      open: true,
+      event,
+      value: event.delivery_deadline || "",
+    });
+  };
+
+  const closeDeadlineDialog = () => {
+    setDeadlineDialog({ open: false, event: null, value: "" });
+  };
+
+  const handleDeadlineSave = async () => {
+    if (!deadlineDialog.event || !deadlineDialog.value) return;
+    try {
+      await apiFetch(`/api/events/${deadlineDialog.event.event_id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          delivery_deadline: deadlineDialog.value,
+          delivery_priority: "",
+        }),
+      });
+      closeDeadlineDialog();
+      if (onRefresh) onRefresh();
+    } catch (error) {
+      console.error("Error updating delivery deadline:", error);
+    }
+  };
+
+  const handleDeadlineClear = async () => {
+    if (!deadlineDialog.event) return;
+    try {
+      await apiFetch(`/api/events/${deadlineDialog.event.event_id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          delivery_deadline: "",
+          delivery_priority: "",
+        }),
+      });
+      closeDeadlineDialog();
+      if (onRefresh) onRefresh();
+    } catch (error) {
+      console.error("Error clearing delivery deadline:", error);
+    }
+  };
+
   if (events.length === 0) {
     return (
       <div className="text-center py-12 text-muted-foreground" data-testid="empty-events-message">
@@ -153,8 +235,9 @@ export const EventsTable = ({ events, packages, onEdit, formatCurrency, onRefres
   }
 
   return (
-    <div className="overflow-x-auto">
-      <Table data-testid="events-table">
+    <>
+      <div className="overflow-x-auto">
+        <Table data-testid="events-table">
         <TableHeader>
           <TableRow className="hover:bg-transparent border-border">
             <SortableHeader label="Date" sortKey="date" currentSort={sort} onSort={handleSort} />
@@ -263,9 +346,41 @@ export const EventsTable = ({ events, packages, onEdit, formatCurrency, onRefres
                       className="data-[state=checked]:bg-green-500 data-[state=checked]:border-green-500"
                       data-testid={`delivered-checkbox-${event.event_id}`}
                     />
-                    <Badge className={`${event.delivered ? "bg-green-500/20 text-green-300 border-green-500/40" : priorityMeta.tableClass} text-xs`}>
-                      {event.delivered ? "Yes" : `No • ${priorityMeta.label}`}
-                    </Badge>
+                    <div onClick={(e) => e.stopPropagation()}>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            data-testid={`priority-menu-${event.event_id}`}
+                          >
+                            <Badge className={`${event.delivered ? "bg-green-500/20 text-green-300 border-green-500/40" : priorityMeta.tableClass} text-xs`}>
+                              {event.delivered ? "Yes" : `No • ${priorityMeta.label}`}
+                              {!event.delivered && <ChevronDown className="w-3 h-3 ml-1" />}
+                            </Badge>
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" className="w-48">
+                          <DropdownMenuLabel>Delivery priority</DropdownMenuLabel>
+                          <DropdownMenuItem onSelect={() => handlePriorityChange(event, "")}>
+                            <Clock className="w-4 h-4" />
+                            Auto from deadline
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          {Object.entries(PRIORITY_META).map(([key, meta]) => (
+                            <DropdownMenuItem key={key} onSelect={() => handlePriorityChange(event, key)}>
+                              <span className={`w-2 h-2 rounded-full ${meta.barClass}`} />
+                              {meta.label}
+                            </DropdownMenuItem>
+                          ))}
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onSelect={() => openDeadlineDialog(event)}>
+                            <CalendarClock className="w-4 h-4" />
+                            Set deadline date
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   </div>
                   <span className="flex items-center gap-1 text-xs text-muted-foreground whitespace-nowrap">
                     <Clock className="w-3 h-3" />
@@ -319,8 +434,43 @@ export const EventsTable = ({ events, packages, onEdit, formatCurrency, onRefres
             );
           })}
         </TableBody>
-      </Table>
-    </div>
+        </Table>
+      </div>
+
+      <Dialog
+        open={deadlineDialog.open}
+        onOpenChange={(open) => {
+          if (!open) closeDeadlineDialog();
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Set deadline date</DialogTitle>
+            <DialogDescription>
+              {deadlineDialog.event?.name || "Choose the delivery deadline for this job."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="delivery-deadline-date">Deadline</Label>
+            <Input
+              id="delivery-deadline-date"
+              type="date"
+              value={deadlineDialog.value}
+              onChange={(e) => setDeadlineDialog((prev) => ({ ...prev, value: e.target.value }))}
+              data-testid="delivery-deadline-date-input"
+            />
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" onClick={handleDeadlineClear}>
+              Clear
+            </Button>
+            <Button type="button" onClick={handleDeadlineSave} disabled={!deadlineDialog.value}>
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 };
 
