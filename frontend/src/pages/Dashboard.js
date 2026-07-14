@@ -35,6 +35,7 @@ import {
   X,
   BarChart3,
   Table2,
+  ClipboardCheck,
   Download,
   FileSpreadsheet,
   Save,
@@ -49,6 +50,7 @@ import ThemeSwitcher from "../components/ThemeSwitcher";
 import SettingsDialog from "../components/SettingsDialog";
 import AnalyticsPanel from "../components/AnalyticsPanel";
 import CalendarSelector from "../components/CalendarSelector";
+import DeliveryBoard from "../components/DeliveryBoard";
 import { apiFetch } from "../utils/api";
 
 export default function Dashboard() {
@@ -709,10 +711,14 @@ export default function Dashboard() {
 
         {/* Main Content Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsList className="grid w-full max-w-lg grid-cols-3">
             <TabsTrigger value="events" className="gap-2" data-testid="events-tab">
               <Table2 className="w-4 h-4" />
               Events
+            </TabsTrigger>
+            <TabsTrigger value="deliveries" className="gap-2" data-testid="deliveries-tab">
+              <ClipboardCheck className="w-4 h-4" />
+              Deliveries
             </TabsTrigger>
             <TabsTrigger value="analytics" className="gap-2" data-testid="analytics-tab">
               <BarChart3 className="w-4 h-4" />
@@ -751,6 +757,15 @@ export default function Dashboard() {
                 </ScrollArea>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* Deliveries Tab */}
+          <TabsContent value="deliveries" className="mt-4">
+            <DeliveryBoard
+              events={events}
+              onEdit={handleEditEvent}
+              formatCurrency={formatCurrency}
+            />
           </TabsContent>
 
           {/* Analytics Tab */}

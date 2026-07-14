@@ -2,9 +2,17 @@ import { useState } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { Badge } from "../components/ui/badge";
 import { Checkbox } from "../components/ui/checkbox";
-import { Check, X, MapPin, Video, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
-import { useTheme } from "../context/ThemeContext";
+import { Check, X, MapPin, Video, ArrowUp, ArrowDown, ArrowUpDown, Clock, CreditCard } from "lucide-react";
 import { apiFetch } from "../utils/api";
+import {
+  PAYMENT_META,
+  getAmountDue,
+  getDeliveryTimingLabel,
+  getEventPriority,
+  getPaymentStatus,
+  getPriorityMeta,
+  sortByDeliveryPriority,
+} from "../utils/delivery";
 
 const SortableHeader = ({ label, sortKey, currentSort, onSort, className = "", children }) => {
   const isActive = currentSort.key === sortKey;
@@ -27,7 +35,6 @@ const SortableHeader = ({ label, sortKey, currentSort, onSort, className = "", c
 };
 
 export const EventsTable = ({ events, packages, onEdit, formatCurrency, onRefresh, highlightedEventIds = [] }) => {
-  const { currentTheme } = useTheme();
   const [sort, setSort] = useState({ key: "date", dir: "asc" });
   const highlightedIds = new Set(highlightedEventIds);
 
@@ -73,6 +80,10 @@ export const EventsTable = ({ events, packages, onEdit, formatCurrency, onRefres
         return ((a.clear_income || 0) - (b.clear_income || 0)) * dir;
       case "deposit":
         return ((a.deposit ? 1 : 0) - (b.deposit ? 1 : 0)) * dir;
+      case "delivery":
+        return sortByDeliveryPriority(a, b) * dir;
+      case "payment":
+        return (getAmountDue(a) - getAmountDue(b)) * dir;
       default:
         return 0;
     }
@@ -113,6 +124,8 @@ export const EventsTable = ({ events, packages, onEdit, formatCurrency, onRefres
             </TableHead>
             <TableHead className="text-muted-foreground font-medium hidden md:table-cell">Package</TableHead>
             <TableHead className="text-muted-foreground font-medium hidden lg:table-cell">Location</TableHead>
+            <SortableHeader label="Delivery" sortKey="delivery" currentSort={sort} onSort={handleSort} />
+            <SortableHeader label="Payment" sortKey="payment" currentSort={sort} onSort={handleSort} />
             <SortableHeader label="Deposit" sortKey="deposit" currentSort={sort} onSort={handleSort} className="text-center" />
             <SortableHeader label="Offer Price" sortKey="offer_price" currentSort={sort} onSort={handleSort} className="text-right hidden sm:table-cell" />
             <SortableHeader label="Income" sortKey="income" currentSort={sort} onSort={handleSort} className="text-right" />
@@ -122,6 +135,11 @@ export const EventsTable = ({ events, packages, onEdit, formatCurrency, onRefres
         <TableBody>
           {sortedEvents.map((event, index) => {
             const isNew = highlightedIds.has(event.event_id);
+            const priority = getEventPriority(event);
+            const priorityMeta = getPriorityMeta(priority);
+            const paymentStatus = getPaymentStatus(event);
+            const paymentMeta = PAYMENT_META[paymentStatus];
+            const amountDue = getAmountDue(event);
 
             return (
               <TableRow
@@ -177,6 +195,28 @@ export const EventsTable = ({ events, packages, onEdit, formatCurrency, onRefres
                 ) : (
                   <span className="text-muted-foreground">-</span>
                 )}
+              </TableCell>
+              <TableCell className="min-w-[138px]" onClick={() => onEdit(event)}>
+                <div className="flex flex-col items-start gap-1">
+                  <Badge className={`${event.delivered ? "bg-green-500/20 text-green-300 border-green-500/40" : priorityMeta.tableClass} text-xs`}>
+                    {event.delivered ? "Yes" : `No • ${priorityMeta.label}`}
+                  </Badge>
+                  <span className="flex items-center gap-1 text-xs text-muted-foreground whitespace-nowrap">
+                    <Clock className="w-3 h-3" />
+                    {getDeliveryTimingLabel(event)}
+                  </span>
+                </div>
+              </TableCell>
+              <TableCell className="min-w-[130px]" onClick={() => onEdit(event)}>
+                <div className="flex flex-col items-start gap-1">
+                  <Badge className={`${paymentMeta.className} text-xs`}>
+                    <CreditCard className="w-3 h-3 mr-1" />
+                    {paymentMeta.label}
+                  </Badge>
+                  <span className="text-xs tabular-nums text-muted-foreground">
+                    {amountDue > 0 ? `${formatCurrency(amountDue)} due` : "No balance"}
+                  </span>
+                </div>
               </TableCell>
               <TableCell className="text-center" onClick={() => onEdit(event)}>
                 {event.deposit ? (
