@@ -12,11 +12,11 @@ import {
   sortByDeliveryPriority,
   daysUntil,
 } from "../utils/delivery";
-import { AlertTriangle, CalendarClock, CheckCircle2, Clock, CreditCard, FileText } from "lucide-react";
+import { AlertTriangle, CalendarClock, CheckCircle2, Clock, CreditCard, FileText, Plus } from "lucide-react";
 
 const PRIORITY_LANES = ["urgent", "red", "orange", "blue"];
 
-export const DeliveryBoard = ({ events, onEdit, formatCurrency }) => {
+export const DeliveryBoard = ({ events, onEdit, onCreate, formatCurrency }) => {
   const { currentTheme } = useTheme();
   const pendingEvents = events
     .filter((event) => !event.delivered)
@@ -47,6 +47,10 @@ export const DeliveryBoard = ({ events, onEdit, formatCurrency }) => {
           <CheckCircle2 className="w-10 h-10 mx-auto mb-3 text-green-400" />
           <p className="text-lg font-semibold text-foreground">All deliveries are marked done</p>
           <p className="text-sm text-muted-foreground mt-1">Open an event to add a new deadline or delivery note.</p>
+          <Button className="mt-5 gap-2" onClick={onCreate} data-testid="delivery-add-job-empty-btn">
+            <Plus className="w-4 h-4" />
+            Add job
+          </Button>
         </CardContent>
       </Card>
     );
@@ -54,6 +58,19 @@ export const DeliveryBoard = ({ events, onEdit, formatCurrency }) => {
 
   return (
     <div className="space-y-6" data-testid="deliveries-panel">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-foreground" style={{ fontFamily: "Outfit, sans-serif" }}>
+            Delivery Queue
+          </h2>
+          <p className="text-sm text-muted-foreground">Pending jobs sorted by deadline and priority.</p>
+        </div>
+        <Button className="gap-2 sm:self-start" onClick={onCreate} data-testid="delivery-add-job-btn">
+          <Plus className="w-4 h-4" />
+          Add job
+        </Button>
+      </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card className={`${currentTheme.isDark ? "glass" : "glass-light"} border-border`}>
           <CardContent className="pt-4">

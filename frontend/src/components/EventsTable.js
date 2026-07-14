@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { Badge } from "../components/ui/badge";
 import { Checkbox } from "../components/ui/checkbox";
-import { Check, X, MapPin, Video, ArrowUp, ArrowDown, ArrowUpDown, Clock, CreditCard } from "lucide-react";
+import { Check, X, MapPin, Video, ArrowUp, ArrowDown, ArrowUpDown, Clock, CreditCard, Users } from "lucide-react";
 import { apiFetch } from "../utils/api";
 import {
   PAYMENT_META,
@@ -62,6 +62,14 @@ export const EventsTable = ({ events, packages, onEdit, formatCurrency, onRefres
     }
   };
 
+  const getCrewInfo = (event) => {
+    const crewName = event.has_video
+      ? event.videographer || event.second_photographer
+      : event.second_photographer || event.videographer;
+    const crewRole = event.has_video ? "2nd Video" : "2nd Photo";
+    return { crewName, crewRole };
+  };
+
   const statusOrder = { completed: 0, booked: 1, unbooked: 2 };
 
   // Sort events
@@ -103,6 +111,25 @@ export const EventsTable = ({ events, packages, onEdit, formatCurrency, onRefres
     }
   };
 
+  const handlePaidToggle = async (event, checked) => {
+    const paidAmount = checked
+      ? event.total_offer_price || 0
+      : event.deposit
+        ? event.deposit_amount || 0
+        : 0;
+
+    try {
+      await apiFetch(`/api/events/${event.event_id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paid_amount: paidAmount }),
+      });
+      if (onRefresh) onRefresh();
+    } catch (error) {
+      console.error("Error updating payment status:", error);
+    }
+  };
+
   if (events.length === 0) {
     return (
       <div className="text-center py-12 text-muted-foreground" data-testid="empty-events-message">
@@ -122,6 +149,7 @@ export const EventsTable = ({ events, packages, onEdit, formatCurrency, onRefres
             <TableHead className="text-muted-foreground font-medium text-center w-[60px]">
               <Video className="w-4 h-4 mx-auto" />
             </TableHead>
+            <TableHead className="text-muted-foreground font-medium min-w-[140px]">Crew</TableHead>
             <TableHead className="text-muted-foreground font-medium hidden md:table-cell">Package</TableHead>
             <TableHead className="text-muted-foreground font-medium hidden lg:table-cell">Location</TableHead>
             <SortableHeader label="Delivery" sortKey="delivery" currentSort={sort} onSort={handleSort} />
@@ -140,6 +168,7 @@ export const EventsTable = ({ events, packages, onEdit, formatCurrency, onRefres
             const paymentStatus = getPaymentStatus(event);
             const paymentMeta = PAYMENT_META[paymentStatus];
             const amountDue = getAmountDue(event);
+            const { crewName, crewRole } = getCrewInfo(event);
 
             return (
               <TableRow
@@ -177,6 +206,21 @@ export const EventsTable = ({ events, packages, onEdit, formatCurrency, onRefres
                   data-testid={`video-checkbox-${event.event_id}`}
                 />
               </TableCell>
+              <TableCell className="min-w-[140px]" onClick={() => onEdit(event)}>
+                {crewName ? (
+                  <div className="flex flex-col items-start gap-1">
+                    <span className="flex max-w-[150px] items-center gap-1 text-sm text-foreground">
+                      <Users className="w-3 h-3 shrink-0 text-muted-foreground" />
+                      <span className="truncate">{crewName}</span>
+                    </span>
+                    <Badge variant="outline" className="text-xs font-normal">
+                      {crewRole}
+                    </Badge>
+                  </div>
+                ) : (
+                  <span className="text-muted-foreground">-</span>
+                )}
+              </TableCell>
               <TableCell className="hidden md:table-cell" onClick={() => onEdit(event)}>
                 {event.package_id || event.package_name ? (
                   <Badge variant="outline" className="font-normal">
@@ -209,10 +253,19 @@ export const EventsTable = ({ events, packages, onEdit, formatCurrency, onRefres
               </TableCell>
               <TableCell className="min-w-[130px]" onClick={() => onEdit(event)}>
                 <div className="flex flex-col items-start gap-1">
-                  <Badge className={`${paymentMeta.className} text-xs`}>
-                    <CreditCard className="w-3 h-3 mr-1" />
-                    {paymentMeta.label}
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      checked={paymentStatus === "paid"}
+                      onClick={(e) => e.stopPropagation()}
+                      onCheckedChange={(checked) => handlePaidToggle(event, checked === true)}
+                      className="data-[state=checked]:bg-green-500 data-[state=checked]:border-green-500"
+                      data-testid={`paid-checkbox-${event.event_id}`}
+                    />
+                    <Badge className={`${paymentMeta.className} text-xs`}>
+                      <CreditCard className="w-3 h-3 mr-1" />
+                      {paymentMeta.label}
+                    </Badge>
+                  </div>
                   <span className="text-xs tabular-nums text-muted-foreground">
                     {amountDue > 0 ? `${formatCurrency(amountDue)} due` : "No balance"}
                   </span>

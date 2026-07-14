@@ -764,6 +764,7 @@ export default function Dashboard() {
             <DeliveryBoard
               events={events}
               onEdit={handleEditEvent}
+              onCreate={handleCreateEvent}
               formatCurrency={formatCurrency}
             />
           </TabsContent>
