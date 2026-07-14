@@ -309,7 +309,7 @@ export const EventSheet = ({ open, onOpenChange, event, packages, onSave, onDele
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="videographer" className="text-sm text-muted-foreground">Videographer</Label>
+                <Label htmlFor="videographer" className="text-sm text-muted-foreground">Second Videographer</Label>
                 <Input
                   id="videographer"
                   value={formData.videographer}
