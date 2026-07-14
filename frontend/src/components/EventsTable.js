@@ -130,6 +130,19 @@ export const EventsTable = ({ events, packages, onEdit, formatCurrency, onRefres
     }
   };
 
+  const handleDeliveredToggle = async (event, checked) => {
+    try {
+      await apiFetch(`/api/events/${event.event_id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ delivered: checked }),
+      });
+      if (onRefresh) onRefresh();
+    } catch (error) {
+      console.error("Error updating delivery status:", error);
+    }
+  };
+
   if (events.length === 0) {
     return (
       <div className="text-center py-12 text-muted-foreground" data-testid="empty-events-message">
@@ -242,9 +255,18 @@ export const EventsTable = ({ events, packages, onEdit, formatCurrency, onRefres
               </TableCell>
               <TableCell className="min-w-[138px]" onClick={() => onEdit(event)}>
                 <div className="flex flex-col items-start gap-1">
-                  <Badge className={`${event.delivered ? "bg-green-500/20 text-green-300 border-green-500/40" : priorityMeta.tableClass} text-xs`}>
-                    {event.delivered ? "Yes" : `No • ${priorityMeta.label}`}
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      checked={event.delivered || false}
+                      onClick={(e) => e.stopPropagation()}
+                      onCheckedChange={(checked) => handleDeliveredToggle(event, checked === true)}
+                      className="data-[state=checked]:bg-green-500 data-[state=checked]:border-green-500"
+                      data-testid={`delivered-checkbox-${event.event_id}`}
+                    />
+                    <Badge className={`${event.delivered ? "bg-green-500/20 text-green-300 border-green-500/40" : priorityMeta.tableClass} text-xs`}>
+                      {event.delivered ? "Yes" : `No • ${priorityMeta.label}`}
+                    </Badge>
+                  </div>
                   <span className="flex items-center gap-1 text-xs text-muted-foreground whitespace-nowrap">
                     <Clock className="w-3 h-3" />
                     {getDeliveryTimingLabel(event)}
