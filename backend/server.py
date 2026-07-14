@@ -1013,9 +1013,13 @@ async def tag_event_calendars(request: Request, user: User = Depends(get_current
 # ======================== EXPORT ROUTES ========================
 
 async def get_user_from_token_or_cookie(request: Request) -> User:
-    """Get user from query token or cookie - for export downloads"""
+    """Get user from query token, Bearer header, or cookie for file downloads."""
     # Try query parameter first (for direct download links)
     token = request.query_params.get("token")
+    if not token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ", 1)[1]
     if not token:
         # Fall back to cookie
         token = request.cookies.get("session_token")
