@@ -107,11 +107,17 @@ class Event(BaseModel):
     second_photographer: Optional[str] = None
     videographer: Optional[str] = None
     delivered: bool = False
+    delivery_deadline: Optional[str] = None
+    delivery_priority: Optional[str] = None
+    delivery_notes: Optional[str] = None
     total_offer_price: float = 0
     photo_offer_price: float = 0
     video_offer_price: float = 0
     costs: float = 0
     clear_income: float = 0
+    paid_amount: float = 0
+    amount_due: float = 0
+    payment_status: str = "unpaid"
     status: str = "booked"  # booked, unbooked, completed
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -131,10 +137,14 @@ class EventCreate(BaseModel):
     second_photographer: Optional[str] = None
     videographer: Optional[str] = None
     delivered: bool = False
+    delivery_deadline: Optional[str] = None
+    delivery_priority: Optional[str] = None
+    delivery_notes: Optional[str] = None
     total_offer_price: float = 0
     photo_offer_price: float = 0
     video_offer_price: float = 0
     costs: float = 0
+    paid_amount: float = 0
     status: str = "booked"
 
 class EventUpdate(BaseModel):
@@ -151,14 +161,52 @@ class EventUpdate(BaseModel):
     second_photographer: Optional[str] = None
     videographer: Optional[str] = None
     delivered: Optional[bool] = None
+    delivery_deadline: Optional[str] = None
+    delivery_priority: Optional[str] = None
+    delivery_notes: Optional[str] = None
     total_offer_price: Optional[float] = None
     photo_offer_price: Optional[float] = None
     video_offer_price: Optional[float] = None
     costs: Optional[float] = None
+    paid_amount: Optional[float] = None
     status: Optional[str] = None
 
 class ThemeUpdate(BaseModel):
     theme: str
+
+def safe_float(value) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+def derive_payment_status(total_offer_price: float, paid_amount: float) -> str:
+    if total_offer_price <= 0:
+        return "unpaid"
+    if paid_amount >= total_offer_price:
+        return "paid"
+    if paid_amount > 0:
+        return "partial"
+    return "unpaid"
+
+def get_effective_paid_amount(event_data: dict) -> float:
+    if "paid_amount" in event_data and event_data.get("paid_amount") is not None:
+        return safe_float(event_data.get("paid_amount"))
+    if event_data.get("deposit"):
+        return safe_float(event_data.get("deposit_amount"))
+    return 0
+
+def apply_event_calculations(event_data: dict) -> dict:
+    calculated = dict(event_data)
+    total = safe_float(calculated.get("total_offer_price"))
+    costs = safe_float(calculated.get("costs"))
+    paid_amount = max(get_effective_paid_amount(calculated), 0)
+
+    calculated["clear_income"] = total - costs
+    calculated["paid_amount"] = paid_amount
+    calculated["amount_due"] = max(total - paid_amount, 0)
+    calculated["payment_status"] = derive_payment_status(total, paid_amount)
+    return calculated
 
 # ======================== AUTH HELPERS ========================
 
@@ -817,16 +865,15 @@ async def get_events(request: Request, user: User = Depends(get_current_user)):
         else:
             query["source_calendar"] = calendar
     events = await db.events.find(query, {"_id": 0}).to_list(500)
-    return events
+    return [apply_event_calculations(event) for event in events]
 
 @api_router.post("/events", response_model=Event)
 async def create_event(data: EventCreate, user: User = Depends(get_current_user)):
     """Create a new event"""
-    clear_income = data.total_offer_price - data.costs
+    event_data = apply_event_calculations(data.model_dump())
     event = Event(
         user_id=user.user_id,
-        clear_income=clear_income,
-        **data.model_dump()
+        **event_data
     )
     await db.events.insert_one(event.model_dump())
     await sync_event_to_notion_safe(event.model_dump())
@@ -841,10 +888,12 @@ async def update_event(event_id: str, data: EventUpdate, user: User = Depends(ge
     
     update_data = {k: v for k, v in data.model_dump().items() if v is not None}
     
-    # Recalculate clear_income if prices or costs changed
-    total = update_data.get("total_offer_price", existing.get("total_offer_price", 0))
-    costs = update_data.get("costs", existing.get("costs", 0))
-    update_data["clear_income"] = total - costs
+    # Recalculate derived financial fields if prices, costs, or payments changed
+    calculated = apply_event_calculations({**existing, **update_data})
+    update_data["clear_income"] = calculated["clear_income"]
+    update_data["paid_amount"] = calculated["paid_amount"]
+    update_data["amount_due"] = calculated["amount_due"]
+    update_data["payment_status"] = calculated["payment_status"]
     update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
     
     await db.events.update_one(
@@ -853,6 +902,7 @@ async def update_event(event_id: str, data: EventUpdate, user: User = Depends(ge
     )
     
     event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
+    event = apply_event_calculations(event)
     await sync_event_to_notion_safe(event)
     return event
 
@@ -918,6 +968,7 @@ async def clear_events(request: Request, user: User = Depends(get_current_user))
 async def create_backup(user: User = Depends(get_current_user)):
     """Create a backup snapshot of all events and packages"""
     events = await db.events.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
+    events = [apply_event_calculations(event) for event in events]
     packages = await db.packages.find({"user_id": user.user_id}, {"_id": 0}).to_list(100)
     
     backup_id = f"bak_{uuid.uuid4().hex[:12]}"
@@ -1041,6 +1092,7 @@ async def export_events_csv(request: Request):
     """Export all events to CSV for Apple Numbers/Excel"""
     user = await get_user_from_token_or_cookie(request)
     events = await db.events.find({"user_id": user.user_id}, {"_id": 0}).to_list(500)
+    events = [apply_event_calculations(event) for event in events]
     
     # Sort by date
     events.sort(key=lambda x: x.get("date", ""))
@@ -1051,9 +1103,11 @@ async def export_events_csv(request: Request):
     # CSV headers matching your fields
     fieldnames = [
         "Date", "Name", "Has Video", "Info", "Package", "Location",
+        "Delivered", "Delivery Deadline", "Delivery Priority", "Delivery Notes",
         "Deposit", "Deposit Amount (EUR)", "Attached Offers",
         "Photo Price (EUR)", "Video Price (EUR)", "Offer Price (EUR)",
-        "Costs (EUR)", "Clear Income (EUR)", "Status", "Google Calendar ID"
+        "Costs (EUR)", "Clear Income (EUR)", "Paid Amount (EUR)", "Amount Due (EUR)",
+        "Payment Status", "Status", "Google Calendar ID"
     ]
     
     writer = csv.DictWriter(output, fieldnames=fieldnames)
@@ -1067,6 +1121,10 @@ async def export_events_csv(request: Request):
             "Info": event.get("info", ""),
             "Package": event.get("package_name", ""),
             "Location": event.get("location", ""),
+            "Delivered": "Yes" if event.get("delivered") else "No",
+            "Delivery Deadline": event.get("delivery_deadline", ""),
+            "Delivery Priority": event.get("delivery_priority", ""),
+            "Delivery Notes": event.get("delivery_notes", ""),
             "Deposit": "Yes" if event.get("deposit") else "No",
             "Deposit Amount (EUR)": event.get("deposit_amount", 0),
             "Attached Offers": event.get("attached_offers", ""),
@@ -1075,6 +1133,9 @@ async def export_events_csv(request: Request):
             "Offer Price (EUR)": event.get("total_offer_price", 0),
             "Costs (EUR)": event.get("costs", 0),
             "Clear Income (EUR)": event.get("clear_income", 0),
+            "Paid Amount (EUR)": event.get("paid_amount", 0),
+            "Amount Due (EUR)": event.get("amount_due", 0),
+            "Payment Status": event.get("payment_status", ""),
             "Status": event.get("status", ""),
             "Google Calendar ID": event.get("google_calendar_event_id", "")
         })
@@ -1149,17 +1210,21 @@ COLUMN_MAPS = {
     # PhotoSync export format
     "Date": "date", "Name": "name", "Has Video": "has_video",
     "Info": "info", "Package": "package_name", "Location": "location",
+    "Delivered": "delivered", "Delivery Deadline": "delivery_deadline",
+    "Delivery Priority": "delivery_priority", "Delivery Notes": "delivery_notes",
     "Deposit": "deposit", "Deposit Amount (EUR)": "deposit_amount",
     "Attached Offers": "attached_offers",
     "Photo Price (EUR)": "photo_offer_price", "Video Price (EUR)": "video_offer_price",
     "Offer Price (EUR)": "total_offer_price", "Costs (EUR)": "costs",
-    "Clear Income (EUR)": "clear_income", "Status": "status",
+    "Clear Income (EUR)": "clear_income", "Paid Amount (EUR)": "paid_amount",
+    "Amount Due (EUR)": "amount_due", "Payment Status": "payment_status", "Status": "status",
     "Google Calendar ID": "google_calendar_event_id",
     # ChatGPT export format
     "Video": "has_video", "Photo Price": "photo_offer_price",
     "Video Price": "video_offer_price", "Offer Price": "total_offer_price",
     "Costs": "costs", "Clear Income": "clear_income",
-    "Deposit Amount": "deposit_amount", "Offers": "attached_offers",
+    "Deposit Amount": "deposit_amount", "Paid Amount": "paid_amount",
+    "Amount Due": "amount_due", "Offers": "attached_offers",
     "Calendar ID": "google_calendar_event_id",
 }
 
@@ -1204,6 +1269,7 @@ async def preview_import(file: UploadFile = File(...), user: User = Depends(get_
         
         # Parse types
         event["has_video"] = parse_bool(event.get("has_video", False))
+        event["delivered"] = parse_bool(event.get("delivered", False))
         event["deposit"] = parse_bool(event.get("deposit", False))
         event["photo_offer_price"] = parse_float(event.get("photo_offer_price", 0))
         event["video_offer_price"] = parse_float(event.get("video_offer_price", 0))
@@ -1211,10 +1277,15 @@ async def preview_import(file: UploadFile = File(...), user: User = Depends(get_
         event["costs"] = parse_float(event.get("costs", 0))
         event["clear_income"] = parse_float(event.get("clear_income", 0))
         event["deposit_amount"] = parse_float(event.get("deposit_amount", 0))
+        if "paid_amount" in event:
+            event["paid_amount"] = parse_float(event.get("paid_amount", 0))
+        event = apply_event_calculations(event)
         event["status"] = event.get("status", "unbooked").lower()
+        if event.get("delivery_priority"):
+            event["delivery_priority"] = event["delivery_priority"].lower()
         
         # Set None for empty strings
-        for key in ("info", "package_name", "location", "attached_offers", "google_calendar_event_id"):
+        for key in ("info", "package_name", "location", "attached_offers", "google_calendar_event_id", "delivery_deadline", "delivery_priority", "delivery_notes"):
             if not event.get(key):
                 event[key] = None
         
@@ -1262,9 +1333,8 @@ async def execute_import(request: Request, user: User = Depends(get_current_user
         # Remove internal fields
         evt_data.pop("_is_duplicate", None)
         
-        # Calculate clear_income if not set
-        if not evt_data.get("clear_income"):
-            evt_data["clear_income"] = evt_data.get("total_offer_price", 0) - evt_data.get("costs", 0)
+        # Recalculate derived financial fields from the imported values
+        evt_data = apply_event_calculations(evt_data)
         
         event = Event(
             user_id=user.user_id,

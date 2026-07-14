@@ -5,13 +5,23 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
 import { Switch } from "../components/ui/switch";
+import { Badge } from "../components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Separator } from "../components/ui/separator";
 import { Calendar } from "../components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
-import { Calendar as CalendarIcon, Trash2 } from "lucide-react";
+import { Calendar as CalendarIcon, Trash2, AlertTriangle, CreditCard } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { useTheme } from "../context/ThemeContext";
+import {
+  PAYMENT_META,
+  getAmountDue,
+  getAutoPriority,
+  getDeliveryTimingLabel,
+  getEventPriority,
+  getPaymentStatus,
+  getPriorityMeta,
+} from "../utils/delivery";
 
 export const EventSheet = ({ open, onOpenChange, event, packages, onSave, onDelete, formatCurrency }) => {
   const { currentTheme } = useTheme();
@@ -31,10 +41,14 @@ export const EventSheet = ({ open, onOpenChange, event, packages, onSave, onDele
     second_photographer: "",
     videographer: "",
     delivered: false,
+    delivery_deadline: "",
+    delivery_priority: "",
+    delivery_notes: "",
     total_offer_price: 0,
     photo_offer_price: 0,
     video_offer_price: 0,
     costs: 0,
+    paid_amount: 0,
     status: "unbooked",
     google_calendar_event_id: "",
   });
@@ -57,10 +71,14 @@ export const EventSheet = ({ open, onOpenChange, event, packages, onSave, onDele
         second_photographer: event.second_photographer || "",
         videographer: event.videographer || "",
         delivered: event.delivered || false,
+        delivery_deadline: event.delivery_deadline || "",
+        delivery_priority: event.delivery_priority || "",
+        delivery_notes: event.delivery_notes || "",
         total_offer_price: event.total_offer_price || 0,
         photo_offer_price: event.photo_offer_price || 0,
         video_offer_price: event.video_offer_price || 0,
         costs: event.costs || 0,
+        paid_amount: event.paid_amount ?? (event.deposit ? event.deposit_amount || 0 : 0),
         status: event.status || "unbooked",
         google_calendar_event_id: event.google_calendar_event_id || "",
       });
@@ -79,10 +97,14 @@ export const EventSheet = ({ open, onOpenChange, event, packages, onSave, onDele
         second_photographer: "",
         videographer: "",
         delivered: false,
+        delivery_deadline: "",
+        delivery_priority: "",
+        delivery_notes: "",
         total_offer_price: 0,
         photo_offer_price: 0,
         video_offer_price: 0,
         costs: 0,
+        paid_amount: 0,
         status: "unbooked",
         google_calendar_event_id: "",
       });
@@ -98,6 +120,18 @@ export const EventSheet = ({ open, onOpenChange, event, packages, onSave, onDele
         const photo = field === "photo_offer_price" ? parseFloat(value) || 0 : parseFloat(prev.photo_offer_price) || 0;
         const video = field === "video_offer_price" ? parseFloat(value) || 0 : parseFloat(prev.video_offer_price) || 0;
         updated.total_offer_price = photo + video;
+      }
+
+      if (field === "deposit" && value && !prev.paid_amount && prev.deposit_amount) {
+        updated.paid_amount = prev.deposit_amount;
+      }
+
+      if (field === "deposit_amount") {
+        const depositAmount = parseFloat(value) || 0;
+        const paidTracksDeposit = !prev.paid_amount || Number(prev.paid_amount) === Number(prev.deposit_amount || 0);
+        if (paidTracksDeposit) {
+          updated.paid_amount = depositAmount;
+        }
       }
       
       return updated;
@@ -146,6 +180,13 @@ export const EventSheet = ({ open, onOpenChange, event, packages, onSave, onDele
   };
 
   const clearIncome = (formData.total_offer_price || 0) - (formData.costs || 0);
+  const autoPriority = getAutoPriority(formData.delivery_deadline);
+  const autoPriorityMeta = autoPriority ? getPriorityMeta(autoPriority) : null;
+  const displayPriority = getEventPriority(formData);
+  const priorityMeta = getPriorityMeta(displayPriority);
+  const amountDue = getAmountDue(formData);
+  const paymentStatus = getPaymentStatus(formData);
+  const paymentMeta = PAYMENT_META[paymentStatus];
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -287,6 +328,56 @@ export const EventSheet = ({ open, onOpenChange, event, packages, onSave, onDele
                 data-testid="event-delivered-switch"
               />
             </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="delivery_deadline" className="text-sm text-muted-foreground">Delivery Deadline</Label>
+                <Input
+                  id="delivery_deadline"
+                  type="date"
+                  value={formData.delivery_deadline}
+                  onChange={(e) => handleChange("delivery_deadline", e.target.value)}
+                  data-testid="event-delivery-deadline-input"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="delivery_priority" className="text-sm text-muted-foreground">Priority</Label>
+                <Select
+                  value={formData.delivery_priority || "auto"}
+                  onValueChange={(value) => handleChange("delivery_priority", value === "auto" ? "" : value)}
+                >
+                  <SelectTrigger data-testid="event-delivery-priority-select">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">Auto{autoPriorityMeta ? ` (${autoPriorityMeta.label})` : ""}</SelectItem>
+                    <SelectItem value="urgent">Urgent !</SelectItem>
+                    <SelectItem value="red">Red</SelectItem>
+                    <SelectItem value="orange">Orange</SelectItem>
+                    <SelectItem value="blue">Blue</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge className={`${priorityMeta.badgeClass} text-xs`}>
+                <AlertTriangle className="w-3 h-3 mr-1" />
+                {priorityMeta.label}
+              </Badge>
+              <span className="text-xs text-muted-foreground">
+                {getDeliveryTimingLabel(formData)}
+              </span>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="delivery_notes" className="text-sm text-muted-foreground">Delivery Notes</Label>
+              <Textarea
+                id="delivery_notes"
+                value={formData.delivery_notes}
+                onChange={(e) => handleChange("delivery_notes", e.target.value)}
+                placeholder="Retouching notes, album status, delivery details..."
+                rows={2}
+                data-testid="event-delivery-notes-textarea"
+              />
+            </div>
           </div>
 
           <Separator />
@@ -411,6 +502,35 @@ export const EventSheet = ({ open, onOpenChange, event, packages, onSave, onDele
                 />
               </div>
             )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="paid_amount" className="text-sm text-muted-foreground">Paid Amount</Label>
+                <Input
+                  id="paid_amount"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={formData.paid_amount}
+                  onChange={(e) => handleChange("paid_amount", parseFloat(e.target.value) || 0)}
+                  className="tabular-nums"
+                  data-testid="event-paid-amount-input"
+                />
+              </div>
+              <div className="p-3 rounded-md border border-input bg-background">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm text-muted-foreground flex items-center gap-2">
+                    <CreditCard className="w-4 h-4" />
+                    Amount Due
+                  </span>
+                  <Badge className={`${paymentMeta.className} text-xs`}>
+                    {paymentMeta.label}
+                  </Badge>
+                </div>
+                <p className="mt-2 text-xl font-bold tabular-nums text-foreground" data-testid="event-amount-due">
+                  {formatCurrency(amountDue)}
+                </p>
+              </div>
+            </div>
           </div>
 
           <div className="space-y-2">
